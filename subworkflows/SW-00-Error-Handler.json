@@ -1,0 +1,139 @@
+{
+  "name": "SW-00 - Error Handler (MAF-Saude)",
+  "nodes": [
+    {
+      "id": "464a8c6a-a97d-4f10-bb44-a4abb0d9a3cc",
+      "name": "Erro Capturado",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {},
+      "notes": "Configure este workflow como 'Error Workflow' nas Settings de SW-01, SW-02 e SW-03 (Workflow Settings > Error Workflow). O n8n dispara este trigger automaticamente sempre que qualquer um deles falhar."
+    },
+    {
+      "id": "d735f826-5cbd-45c4-b75b-d8b88e63d655",
+      "name": "Formatar Payload de Erro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Função pura: recebe o contexto de erro nativo do n8n (Error Trigger)\n// e formata um payload estruturado e seguro para log e alerta.\n// Regra de privacidade (Protocolo 7.1.2 do docx): nunca incluir dado de\n// paciente ou dado sensível do respondente aqui — só metadados técnicos\n// de execução (nome do workflow, id da execução, node onde falhou, mensagem).\n\nconst errorData = $input.first().json;\n\nfunction formatarPayloadErro(errorData) {\n  const workflowNome = errorData.workflow && errorData.workflow.name\n    ? errorData.workflow.name\n    : \"desconhecido\";\n  const execucaoId = errorData.execution && errorData.execution.id\n    ? String(errorData.execution.id)\n    : \"sem-id\";\n  const nodeComErro = errorData.execution && errorData.execution.lastNodeExecuted\n    ? errorData.execution.lastNodeExecuted\n    : \"desconhecido\";\n  const mensagemBruta = errorData.execution && errorData.execution.error && errorData.execution.error.message\n    ? errorData.execution.error.message\n    : \"erro sem mensagem capturada\";\n\n  return {\n    timestamp: new Date().toISOString(),\n    subworkflow_origem: workflowNome,\n    execucao_id: execucaoId,\n    status: \"erro\",\n    payload_erro: {\n      node: nodeComErro,\n      // corta a mensagem para não estourar o campo jsonb nem vazar stack trace gigante\n      mensagem: String(mensagemBruta).slice(0, 500),\n    },\n  };\n}\n\nreturn [{ json: formatarPayloadErro(errorData) }];"
+      }
+    },
+    {
+      "id": "f7a376b6-3359-49a5-84df-e3fe6412aae0",
+      "name": "Gravar em log_auditoria",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        -80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/log_auditoria",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "notes": "Grava o erro na tabela de auditoria. Se isso falhar 3x, o próprio n8n mostra a execução como falha órfã no painel — não há um 'erro do erro' recursivo porque este workflow não tem seu próprio Error Workflow configurado (proposital).",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "id": "b542e9e1-7d8b-4434-b36e-becd5ac8a846",
+      "name": "Alerta Discord/Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERTA_WEBHOOK_URL }}",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  embeds: [{\n    title: \"🔴 Alerta MAF-Saúde — Falha em Subworkflow\",\n    description: $json.payload_erro.mensagem,\n    color: 15158332,\n    fields: [\n      { name: \"Subworkflow\", value: $json.subworkflow_origem, inline: true },\n      { name: \"Execução\", value: $json.execucao_id, inline: true },\n      { name: \"Node\", value: $json.payload_erro.node, inline: true },\n      { name: \"Timestamp\", value: $json.timestamp, inline: false }\n    ]\n  }]\n}) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "notes": "ALERTA_WEBHOOK_URL é a URL do webhook do Discord/Slack/Teams (variável de ambiente do n8n). Compatível com Discord nativamente; para Slack/Teams, adaptar o formato do body (ver README).",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    }
+  ],
+  "connections": {
+    "Erro Capturado": {
+      "main": [
+        [
+          {
+            "node": "Formatar Payload de Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Payload de Erro": {
+      "main": [
+        [
+          {
+            "node": "Gravar em log_auditoria",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Alerta Discord/Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "maf-saude-mvp"
+  }
+}

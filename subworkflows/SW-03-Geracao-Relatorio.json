@@ -1,0 +1,214 @@
+{
+  "name": "SW-03 - Geracao e Entrega do Relatorio (MAF-Saude)",
+  "nodes": [
+    {
+      "id": "00740808-2d77-4a3d-9682-2fffa34f1ab6",
+      "name": "Receber Trigger Relatorio",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "maf-gerar-relatorio",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "notes": "URL final: https://<seu-host-n8n>/webhook/maf-gerar-relatorio. Chamado internamente por SW-02 (fire-and-forget) logo após persistir o IAO — não é exposto ao formulário público. Configure SW-00 como Error Workflow (Settings > Error Workflow)."
+    },
+    {
+      "id": "546f836f-c388-4fec-9177-9940de956a9e",
+      "name": "Buscar IAO e Contexto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/iao_calculado",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "setor_id",
+              "value": "=eq.{{ $json.body.setor_id }}"
+            },
+            {
+              "name": "periodo",
+              "value": "=eq.{{ $json.body.periodo }}"
+            },
+            {
+              "name": "select",
+              "value": "*,setores(nome,nivel_criticidade,instituicoes(nome,email_contato))"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "notes": "Usa o recurso de embedding do PostgREST (select=*,setores(...)) para trazer numa única chamada o registro de iao_calculado JUNTO com nome do setor e nome/email da instituição — evita 2 chamadas HTTP separadas.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "id": "6478c8a7-c6ab-47c0-9c0f-e7d78abc6383",
+      "name": "Montar Relatorio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Cópia literal e testada de report_logic.js (19/19 testes em\n// test_sw03_logic.js). Se precisar alterar rótulos/texto, altere lá, rode os\n// testes, e só então copie aqui. NÃO recalcula IAO — só traduz em narrativa.\n\nconst NIVEIS_MATURIDADE = {\n  1: { status: \"Risco Iminente / Colapso Operacional\", perfil_radar: \"🔴 Âncora\", acao: \"Reengenharia total ou troca de software (imediato)\" },\n  2: { status: \"Adoção Dolorosa (Burnout)\", perfil_radar: \"🟠 Distorcido\", acao: \"Mutirão Lean: reduzir cliques/pop-ups (SLA 72h)\" },\n  3: { status: \"Estabilidade Burocrática\", perfil_radar: \"🟡 Simétrico central\", acao: \"Integrações via API, suporte à decisão clínica\" },\n  4: { status: \"Fluidez Operacional\", perfil_radar: \"🔵 Balão (base)\", acao: \"Sustentação e escuta contínua\" },\n  5: { status: \"Selo Padrão Ouro MAF / Aderência Orgânica\", perfil_radar: \"🟢 Balão (alto)\", acao: \"Certificação + Employer Branding\" },\n};\n\nconst NIVEIS_CRITICIDADE = {\n  1: \"Administrativo\",\n  2: \"Assistencial Eletivo\",\n  3: \"Urgência / Intensiva (Alta Criticidade)\",\n};\n\nconst NOMES_BLOCOS = { VC: \"Valor Clínico Percebido\", UI: \"Usabilidade Invisível\", FD: \"Fricção Digital\", CC: \"Carga Cognitiva\" };\n\nfunction identificarBlocoMaisFraco(iaoRow) {\n  const impulso = { VC: 5 - iaoRow.vc_medio, UI: 5 - iaoRow.ui_medio };\n  const atrito = { FD: iaoRow.fd_medio, CC: iaoRow.cc_medio };\n  const candidatos = { ...impulso, ...atrito };\n  let piorBloco = null, piorValor = -Infinity;\n  for (const [bloco, valor] of Object.entries(candidatos)) {\n    if (valor > piorValor) { piorValor = valor; piorBloco = bloco; }\n  }\n  return piorBloco;\n}\n\nfunction montarRelatorio({ iaoRow, setorNome, instituicaoNome }) {\n  if (!iaoRow || typeof iaoRow.nivel_maturidade !== \"number\") {\n    throw new Error(\"montarRelatorio: registro de iao_calculado ausente ou sem nivel_maturidade\");\n  }\n  const nivelInfo = NIVEIS_MATURIDADE[iaoRow.nivel_maturidade];\n  if (!nivelInfo) {\n    throw new Error(\"montarRelatorio: nivel_maturidade fora do intervalo 1-5: \" + iaoRow.nivel_maturidade);\n  }\n  const rotuloCriticidade = NIVEIS_CRITICIDADE[iaoRow.nivel_criticidade] || \"Não classificado\";\n  const blocoMaisFraco = identificarBlocoMaisFraco(iaoRow);\n  const inconclusivo = iaoRow.status_amostral !== \"ok\";\n\n  return {\n    setor_nome: setorNome || \"(setor não identificado)\",\n    instituicao_nome: instituicaoNome || \"(instituição não identificada)\",\n    periodo: iaoRow.periodo,\n    resumo_executivo: {\n      iao: iaoRow.iao,\n      iao_critico: iaoRow.iao_critico,\n      valor_usado_na_classificacao: iaoRow.iao_critico !== null && iaoRow.iao_critico !== undefined ? iaoRow.iao_critico : iaoRow.iao,\n      nivel_maturidade: iaoRow.nivel_maturidade,\n      status: nivelInfo.status,\n      perfil_radar: nivelInfo.perfil_radar,\n      nivel_criticidade_setor: iaoRow.nivel_criticidade,\n      rotulo_criticidade_setor: rotuloCriticidade,\n    },\n    blocos: {\n      VC: { media: iaoRow.vc_medio, nome: NOMES_BLOCOS.VC },\n      UI: { media: iaoRow.ui_medio, nome: NOMES_BLOCOS.UI },\n      FD: { media: iaoRow.fd_medio, nome: NOMES_BLOCOS.FD },\n      CC: { media: iaoRow.cc_medio, nome: NOMES_BLOCOS.CC },\n    },\n    ponto_de_atencao_principal: {\n      bloco: blocoMaisFraco,\n      nome: NOMES_BLOCOS[blocoMaisFraco],\n      observacao:\n        blocoMaisFraco === \"VC\" || blocoMaisFraco === \"UI\"\n          ? NOMES_BLOCOS[blocoMaisFraco] + \" está com a média mais baixa relativa aos demais — é a maior alavanca de melhoria de curto prazo (heurística por bloco, não é análise de causalidade).\"\n          : NOMES_BLOCOS[blocoMaisFraco] + \" está com a média mais alta (mais atrito) relativa aos demais — é a maior alavanca de melhoria de curto prazo (heurística por bloco, não é análise de causalidade).\",\n    },\n    acao_recomendada: nivelInfo.acao,\n    alerta: { deve_alertar: iaoRow.deve_alertar === true, limiar_aplicado: iaoRow.limiar_aplicado },\n    amostra: {\n      n_respondentes: iaoRow.n_respondentes,\n      status_amostral: iaoRow.status_amostral,\n      inconclusivo,\n      aviso: inconclusivo\n        ? \"Amostra abaixo do piso técnico mínimo do MVP (5 respondentes) — resultado é indicativo, não conclusivo. O piso científico oficial (Protocolo 7.2.2) exige volume de piloto ainda maior.\"\n        : null,\n    },\n    gerado_em: new Date().toISOString(),\n  };\n}\n\n// ---------------- glue com o contexto do n8n ----------------\n\nconst registros = $input.first().json;\nconst iaoRow = Array.isArray(registros) ? registros[0] : registros;\nif (!iaoRow) {\n  throw new Error(\"Nenhum registro de iao_calculado encontrado para este setor_id/periodo — abortando geração de relatório (dispara o Error Workflow SW-00).\");\n}\n\nconst setorEmbed = Array.isArray(iaoRow.setores) ? iaoRow.setores[0] : iaoRow.setores;\nconst instituicaoEmbed = setorEmbed ? (Array.isArray(setorEmbed.instituicoes) ? setorEmbed.instituicoes[0] : setorEmbed.instituicoes) : null;\n\nconst relatorio = montarRelatorio({\n  iaoRow,\n  setorNome: setorEmbed ? setorEmbed.nome : null,\n  instituicaoNome: instituicaoEmbed ? instituicaoEmbed.nome : null,\n});\n\nreturn [{\n  json: {\n    setor_id: iaoRow.setor_id,\n    periodo: iaoRow.periodo,\n    email_contato: instituicaoEmbed ? instituicaoEmbed.email_contato : null,\n    relatorio,\n  },\n}];"
+      }
+    },
+    {
+      "id": "82a1648c-04a2-454a-b838-de34fecff4b6",
+      "name": "Gravar Relatorio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        -80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/relatorios_diagnostico?on_conflict=setor_id,periodo",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ setor_id: $json.setor_id, periodo: $json.periodo, conteudo: $json.relatorio }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "notes": "Upsert por (setor_id, periodo) — reprocessar o mesmo período ATUALIZA o relatório existente em vez de duplicar (constraint unique(setor_id,periodo) em relatorios_diagnostico, migração 002_relatorios.sql).",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "id": "ca671911-c15b-4293-ab14-0a32a83ad0a6",
+      "name": "Enviar Email de Notificacao",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1040,
+        -80
+      ],
+      "parameters": {
+        "fromEmail": "={{ $env.SMTP_FROM_EMAIL }}",
+        "toEmail": "={{ $('Montar Relatorio').first().json.email_contato }}",
+        "subject": "=Diagnóstico MAF-Saúde disponível — {{ $('Montar Relatorio').first().json.relatorio.setor_nome }}",
+        "emailFormat": "html",
+        "html": "={{ '<p>O diagnóstico do setor <b>' + $('Montar Relatorio').first().json.relatorio.setor_nome + '</b> (' + $('Montar Relatorio').first().json.periodo + ') está pronto.</p><p>Nível de maturidade: <b>' + $('Montar Relatorio').first().json.relatorio.resumo_executivo.status + '</b></p><p><a href=\\'' + $env.FIREBASE_REPORT_BASE_URL + '/relatorio.html?setor_id=' + $('Montar Relatorio').first().json.setor_id + '&periodo=' + $('Montar Relatorio').first().json.periodo + '\\'>Ver relatório completo</a></p>' }}",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "PLACEHOLDER_TROCAR_NO_IMPORT",
+          "name": "SMTP MAF-Saude"
+        }
+      },
+      "notes": "PRECISA de credencial SMTP configurada manualmente após o import (n8n > Credentials > SMTP) — o id 'PLACEHOLDER_TROCAR_NO_IMPORT' é substituído automaticamente pelo n8n na tela de import se a credencial tiver o mesmo nome, ou precisa ser religada manualmente. onError=continueRegularOutput: falha de e-mail não deve derrubar o workflow — o relatório já foi gravado e pode ser acessado direto pelo link/página de relatório sem depender do e-mail.",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Receber Trigger Relatorio": {
+      "main": [
+        [
+          {
+            "node": "Buscar IAO e Contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar IAO e Contexto": {
+      "main": [
+        [
+          {
+            "node": "Montar Relatorio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Relatorio": {
+      "main": [
+        [
+          {
+            "node": "Gravar Relatorio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gravar Relatorio": {
+      "main": [
+        [
+          {
+            "node": "Enviar Email de Notificacao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "maf-saude-mvp"
+  }
+}

@@ -1,0 +1,575 @@
+{
+  "name": "SW-01 - Ingestao e Validacao (MAF-Saude)",
+  "nodes": [
+    {
+      "id": "da73d26c-739b-4282-a58c-7651bf6e86f0",
+      "name": "Receber Submissao",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "maf-intake",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "notes": "URL final: https://<seu-host-n8n>/webhook/maf-intake. 'allowedOrigins: *' resolve CORS para o formulário HTML rodar em outro domínio (Firebase Hosting) — trocar por domínio específico antes de ir para produção com clientes reais."
+    },
+    {
+      "id": "fa5ebf72-b413-469d-b4ba-651b4648841c",
+      "name": "Validar Estrutura do Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Função pura: valida forma e faixa de valores do payload recebido do\n// formulário público. Não faz nenhuma chamada externa.\nfunction validarEstrutura(payload) {\n  const erros = [];\n\n  if (!payload || typeof payload !== \"object\") {\n    return { valido: false, motivo: \"payload_malformado\", detalhes: [\"body vazio ou não é objeto\"] };\n  }\n  if (typeof payload.token_instituicao !== \"string\" || payload.token_instituicao.length < 8) {\n    erros.push(\"token_instituicao ausente ou inválido\");\n  }\n  if (typeof payload.setor_id !== \"string\" || !/^[0-9a-f-]{36}$/i.test(payload.setor_id)) {\n    erros.push(\"setor_id ausente ou não é um UUID válido\");\n  }\n  if (typeof payload.periodo !== \"string\" || !/^\\d{4}-\\d{2}-\\d{2}$/.test(payload.periodo)) {\n    erros.push(\"periodo ausente ou fora do formato AAAA-MM-DD\");\n  }\n  if (typeof payload.respondente_hash !== \"string\" || payload.respondente_hash.length < 4) {\n    erros.push(\"respondente_hash ausente\");\n  }\n\n  const blocos = [\"VC\", \"UI\", \"FD\", \"CC\"];\n  const respostas = payload.respostas || {};\n  for (const bloco of blocos) {\n    const valores = respostas[bloco];\n    if (!Array.isArray(valores) || valores.length !== 4) {\n      erros.push(\"bloco \" + bloco + \" ausente ou sem exatamente 4 itens\");\n      continue;\n    }\n    for (const v of valores) {\n      if (!Number.isInteger(v) || v < 1 || v > 5) {\n        erros.push(\"bloco \" + bloco + \" contém valor fora da escala 1-5: \" + v);\n      }\n    }\n  }\n\n  if (erros.length > 0) {\n    return { valido: false, motivo: \"payload_malformado\", detalhes: erros };\n  }\n\n  return {\n    valido: true,\n    token_instituicao: payload.token_instituicao,\n    setor_id: payload.setor_id,\n    periodo: payload.periodo,\n    respondente_hash: payload.respondente_hash,\n    respostas,\n  };\n}\n\n// O n8n coloca o corpo do POST em $json.body; fallback para $json cobre\n// versões/configurações onde o body já chega no nível raiz.\nconst entrada = $input.first().json;\nconst payload = entrada.body ?? entrada;\nreturn [{ json: validarEstrutura(payload) }];"
+      }
+    },
+    {
+      "id": "89d4faec-d351-483d-9c45-96ad4b0bfba8",
+      "name": "Payload Valido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.valido }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "2e7678bb-9f5e-474b-a6cd-f491f1f923f4",
+      "name": "Erro 400 - Payload",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        120
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 400,
+        "responseBody": "={{ JSON.stringify({ status: \"erro\", motivo: $json.motivo, detalhes: $json.detalhes || [] }) }}"
+      }
+    },
+    {
+      "id": "c2b96536-24a5-4e6e-90ca-3dc4017ed92a",
+      "name": "Checar Straight-Lining",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        -120
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Função pura: detecta \"straight-lining\" (mesma nota nos 16 itens) —\n// Protocolo 7.2.4 da metodologia. Registros assim são descartados porque\n// geram contradição matemática na fórmula do IAO.\nfunction checarStraightLining(dados) {\n  const todosValores = [\n    ...dados.respostas.VC,\n    ...dados.respostas.UI,\n    ...dados.respostas.FD,\n    ...dados.respostas.CC,\n  ];\n  const primeiro = todosValores[0];\n  const straightlining = todosValores.every((v) => v === primeiro);\n  return { ...dados, straightlining };\n}\n\nreturn [{ json: checarStraightLining($input.first().json) }];"
+      }
+    },
+    {
+      "id": "bae47ce4-2965-4113-8ae1-23fdf5b720d6",
+      "name": "Straight-Lining Detectado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        -120
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.straightlining }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "1217502d-9147-45d2-9072-3f67a3ab8e94",
+      "name": "Erro 400 - Straightlining",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 400,
+        "responseBody": "={{ JSON.stringify({ status: \"erro\", motivo: \"straightlining_detectado\" }) }}"
+      }
+    },
+    {
+      "id": "50abe42f-b74a-4b55-86fe-988d8b0ad3be",
+      "name": "Validar Token da Instituicao",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        -240
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/instituicoes",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "token_acesso",
+              "value": "=eq.{{ $json.token_instituicao }}"
+            },
+            {
+              "name": "select",
+              "value": "id,nome,ativo"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "id": "440424a2-5635-4b0f-8804-139ef3e30197",
+      "name": "Checar Instituicao Valida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        -240
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Função pura: interpreta o array retornado pelo PostgREST em\n// GET /instituicoes?token_acesso=eq...\nfunction checarInstituicao(respostaSupabase, dadosAnteriores) {\n  const registros = Array.isArray(respostaSupabase) ? respostaSupabase : [];\n  if (registros.length === 0) {\n    return { ...dadosAnteriores, instituicao_valida: false, motivo: \"token_invalido\" };\n  }\n  const instituicao = registros[0];\n  if (instituicao.ativo !== true) {\n    return { ...dadosAnteriores, instituicao_valida: false, motivo: \"instituicao_inativa\" };\n  }\n  return { ...dadosAnteriores, instituicao_valida: true, instituicao_id: instituicao.id, instituicao_nome: instituicao.nome };\n}\n\n// Referenciar o node anterior PELO NOME EXATO — se renomear o node no editor,\n// atualize esta referência também (ver README, seção \"Convenção de nomes\").\nconst dadosAnteriores = $('Checar Straight-Lining').item.json;\nreturn [{ json: checarInstituicao($input.first().json, dadosAnteriores) }];"
+      }
+    },
+    {
+      "id": "2734c6fe-d338-485f-8593-92c46254fbd8",
+      "name": "Instituicao Valida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        -240
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.instituicao_valida }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c3cbd964-d629-4564-8b90-826b4f0503a8",
+      "name": "Erro 400 - Token",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2080,
+        -120
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 400,
+        "responseBody": "={{ JSON.stringify({ status: \"erro\", motivo: $json.motivo }) }}"
+      }
+    },
+    {
+      "id": "a60b1c47-9a54-48c9-9e2d-6d151d48f584",
+      "name": "Buscar Setor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        -360
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/setores",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "=eq.{{ $json.setor_id }}"
+            },
+            {
+              "name": "select",
+              "value": "id,nivel_criticidade,instituicao_id"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "id": "563c017a-b1f2-40c6-890f-6382e7d6b5a3",
+      "name": "Checar Setor Pertence a Instituicao",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        -360
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "// Função pura: confere que o setor existe E pertence à MESMA instituição\n// do token usado. Sem isso, um token válido de uma instituição poderia ser\n// combinado com o setor_id de outra instituição (setor_id sozinho não é segredo).\nfunction checarSetor(respostaSupabase, dadosAnteriores) {\n  const registros = Array.isArray(respostaSupabase) ? respostaSupabase : [];\n  if (registros.length === 0) {\n    return { ...dadosAnteriores, setor_valido: false, motivo: \"setor_nao_encontrado\" };\n  }\n  const setor = registros[0];\n  if (setor.instituicao_id !== dadosAnteriores.instituicao_id) {\n    return { ...dadosAnteriores, setor_valido: false, motivo: \"setor_nao_pertence_a_instituicao\" };\n  }\n  return { ...dadosAnteriores, setor_valido: true, nivel_criticidade: setor.nivel_criticidade };\n}\n\nconst dadosAnteriores = $('Checar Instituicao Valida').item.json;\nreturn [{ json: checarSetor($input.first().json, dadosAnteriores) }];"
+      }
+    },
+    {
+      "id": "717af59b-3b75-44a1-b850-411679ff281b",
+      "name": "Setor Valido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2600,
+        -360
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.setor_valido }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e2d37b58-ef93-402e-9546-53d06fafb67e",
+      "name": "Erro 400 - Setor",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2860,
+        -240
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 400,
+        "responseBody": "={{ JSON.stringify({ status: \"erro\", motivo: $json.motivo }) }}"
+      }
+    },
+    {
+      "id": "96e5eeee-db4a-400c-9acf-bd6574efa744",
+      "name": "Gravar Resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2860,
+        -480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/respostas_validadas",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ setor_id: $json.setor_id, respondente_hash: $json.respondente_hash, periodo: $json.periodo, respostas: $json.respostas, flag_straightlining: false }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "notes": "Ponto crítico de durabilidade do dado — por isso tem retry (3x/4s). Se falhar mesmo assim, o Error Workflow (SW-00) grava em log_auditoria e alerta o time.",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "id": "f105d51b-635b-4524-82e2-2ded678bec1b",
+      "name": "Responder Sucesso",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3120,
+        -560
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 200,
+        "responseBody": "={{ JSON.stringify({ status: \"recebido\" }) }}"
+      },
+      "notes": "Responde ao navegador do respondente IMEDIATAMENTE após gravar a resposta bruta — não espera o cálculo do IAO nem o envio de e-mail (ver risco #2 em API_MAPEAMENTO.md)."
+    },
+    {
+      "id": "6712bda3-2066-4990-8b2c-2a661fb83d74",
+      "name": "Disparar Calculo IAO (fire-and-forget)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        -400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_BASE_URL }}/webhook/maf-calculo-iao",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ setor_id: $json.setor_id, periodo: $json.periodo }) }}",
+        "options": {
+          "timeout": 3000
+        }
+      },
+      "notes": "Chama o webhook do SW-02 sem bloquear a resposta ao usuário (já respondida em paralelo por 'Responder Sucesso'). onError=continueRegularOutput: mesmo se esta chamada falhar/der timeout, a execução de SW-01 termina como sucesso — o dado já está salvo em respostas_validadas, e o cálculo pode ser reprocessado depois se necessário.",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Receber Submissao": {
+      "main": [
+        [
+          {
+            "node": "Validar Estrutura do Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Estrutura do Payload": {
+      "main": [
+        [
+          {
+            "node": "Payload Valido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payload Valido?": {
+      "main": [
+        [
+          {
+            "node": "Checar Straight-Lining",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erro 400 - Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checar Straight-Lining": {
+      "main": [
+        [
+          {
+            "node": "Straight-Lining Detectado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Straight-Lining Detectado?": {
+      "main": [
+        [
+          {
+            "node": "Erro 400 - Straightlining",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validar Token da Instituicao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar Token da Instituicao": {
+      "main": [
+        [
+          {
+            "node": "Checar Instituicao Valida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checar Instituicao Valida": {
+      "main": [
+        [
+          {
+            "node": "Instituicao Valida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instituicao Valida?": {
+      "main": [
+        [
+          {
+            "node": "Buscar Setor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erro 400 - Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Setor": {
+      "main": [
+        [
+          {
+            "node": "Checar Setor Pertence a Instituicao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checar Setor Pertence a Instituicao": {
+      "main": [
+        [
+          {
+            "node": "Setor Valido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Setor Valido?": {
+      "main": [
+        [
+          {
+            "node": "Gravar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erro 400 - Setor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gravar Resposta": {
+      "main": [
+        [
+          {
+            "node": "Responder Sucesso",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Disparar Calculo IAO (fire-and-forget)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": ""
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "maf-saude-mvp"
+  }
+}

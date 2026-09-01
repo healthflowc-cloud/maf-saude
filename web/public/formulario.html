@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Diagnóstico MAF-Saúde</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="maf-header">
+    <h1>Diagnóstico MAF-Saúde — Índice de Aderência Orgânica</h1>
+    <p>Avaliação do SISTEMA que você usa no dia a dia — não é uma avaliação da sua equipe nem do seu desempenho.</p>
+  </div>
+
+  <div class="maf-container">
+    <div id="aviso-link-invalido" class="maf-aviso erro" hidden>
+      Link inválido ou incompleto. Peça à sua instituição o link correto do questionário (ele contém o setor e a instituição já identificados).
+    </div>
+
+    <div id="area-formulario" hidden>
+      <div class="maf-card" style="background:var(--maf-azul-claro); border-color:#aed6f1;">
+        <p style="margin:0; font-size:0.9rem;">
+          Escala: <b>1 = Discordo Totalmente</b> … <b>5 = Concordo Totalmente</b>. Leva de 3 a 4 minutos.
+          Suas respostas são agregadas por setor — nenhuma resposta individual é exibida isoladamente.
+        </p>
+      </div>
+
+      <form id="form-maf">
+        <div id="blocos-container"></div>
+
+        <div id="aviso-envio" class="maf-aviso erro" hidden></div>
+
+        <button type="submit" class="maf-btn" id="btn-enviar">Enviar respostas</button>
+      </form>
+    </div>
+
+    <div id="area-sucesso" class="maf-aviso sucesso" hidden>
+      ✅ Respostas registradas. Obrigado por contribuir com o diagnóstico do seu setor.
+    </div>
+
+    <p class="maf-footer-nota">Modelo MAF-Saúde — UTAUT + TAM + Lean Healthcare · Weknow Healthtech</p>
+  </div>
+
+  <script src="config.js"></script>
+  <script>
+    // ------------------------------------------------------------------
+    // Instrumento de 16 itens (Seção 5 do MAF-Saude_Consolidado_v1.md).
+    // Perguntas de perfil (cargo/tempo de casa) foram DEFERIDAS para v2:
+    // o schema MVP (respostas_validadas) só tem espaço para os 4 blocos
+    // que entram no cálculo do IAO — ver README, "Decisões de escopo".
+    // ------------------------------------------------------------------
+    const BLOCOS = [
+      {
+        chave: "VC",
+        titulo: "Bloco 1 — Valor Clínico Percebido",
+        sub: "O sistema ajuda no cuidado ao paciente?",
+        perguntas: [
+          "O sistema fornece informações que auxiliam nas minhas decisões clínicas diárias.",
+          "O uso desta tecnologia reduz o risco de eventos adversos no meu turno.",
+          "Em comparação com processos antigos, esta ferramenta me faz economizar tempo.",
+          "O sistema me fornece informações (histórico, exames) que previnem erros médicos.",
+        ],
+      },
+      {
+        chave: "UI",
+        titulo: "Bloco 2 — Usabilidade Invisível",
+        sub: "O sistema é fácil de usar sem atrapalhar o raciocínio clínico?",
+        perguntas: [
+          "A interface é intuitiva ao ponto de eu utilizá-la bem sem precisar de manuais.",
+          "As informações críticas (alergias, sinais vitais) saltam aos olhos rapidamente.",
+          "Se cometo um erro de digitação, o sistema permite corrigir facilmente.",
+          "A ordem das telas acompanha o fluxo natural do raciocínio clínico.",
+        ],
+      },
+      {
+        chave: "FD",
+        titulo: "Bloco 3 — Fricção Digital",
+        sub: "Quanto atrito o sistema gera no seu trabalho? (nota alta aqui é ruim)",
+        perguntas: [
+          "Preciso digitar a mesma informação em mais de uma tela.",
+          "Travamentos/lentidão interrompem meu fluxo de trabalho constantemente.",
+          "Para uma ação simples, sou obrigado a dar muitos cliques desnecessários.",
+          "A falta de integração me obriga a buscar dados fora desta ferramenta.",
+        ],
+      },
+      {
+        chave: "CC",
+        titulo: "Bloco 4 — Carga Cognitiva",
+        sub: "Quanto esgotamento mental o sistema causa? (nota alta aqui é ruim)",
+        perguntas: [
+          "O sistema emite tantos pop-ups/alertas que fecho a maioria sem ler (fadiga).",
+          "As telas são poluídas (excesso de cores/botões), causando cansaço visual.",
+          "Sinto que dou mais atenção à tela do que ao paciente durante o atendimento.",
+          "Ao final do turno, sinto esgotamento mental causado pelo uso do sistema.",
+        ],
+      },
+    ];
+
+    function lerParametros() {
+      const params = new URLSearchParams(window.location.search);
+      return { token: params.get("token"), setor: params.get("setor") };
+    }
+
+    function primeiroDiaDoMesAtual() {
+      const hoje = new Date();
+      const ano = hoje.getFullYear();
+      const mes = String(hoje.getMonth() + 1).padStart(2, "0");
+      return `${ano}-${mes}-01`;
+    }
+
+    // Hash não-reversível do respondente: combina o setor com um identificador
+    // aleatório persistido no navegador (não é PII — não identifica a pessoa,
+    // só evita que o MESMO navegador conte como respondentes diferentes no
+    // mesmo período). Heurística de UX, não é controle de segurança.
+    async function obterRespondenteHash(setorId) {
+      const chaveLocal = `maf_respondente_id_${setorId}`;
+      let idLocal = null;
+      try { idLocal = localStorage.getItem(chaveLocal); } catch (e) { /* navegador pode bloquear */ }
+      if (!idLocal) {
+        idLocal = crypto.randomUUID();
+        try { localStorage.setItem(chaveLocal, idLocal); } catch (e) { /* segue sem persistir */ }
+      }
+      const encoder = new TextEncoder();
+      const dados = encoder.encode(setorId + ":" + idLocal);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", dados);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    function renderizarBlocos() {
+      const container = document.getElementById("blocos-container");
+      container.innerHTML = "";
+      for (const bloco of BLOCOS) {
+        const card = document.createElement("div");
+        card.className = "maf-card";
+        const titulo = document.createElement("p");
+        titulo.className = "maf-bloco-titulo";
+        titulo.textContent = bloco.titulo;
+        const sub = document.createElement("p");
+        sub.className = "maf-bloco-sub";
+        sub.textContent = bloco.sub;
+        card.appendChild(titulo);
+        card.appendChild(sub);
+
+        bloco.perguntas.forEach((texto, idx) => {
+          const nomeCampo = `${bloco.chave}_${idx}`;
+          const item = document.createElement("div");
+          item.className = "maf-item";
+          const p = document.createElement("p");
+          p.className = "pergunta";
+          p.textContent = texto;
+          item.appendChild(p);
+
+          const escala = document.createElement("div");
+          escala.className = "maf-escala";
+          for (let v = 1; v <= 5; v++) {
+            const label = document.createElement("label");
+            const input = document.createElement("input");
+            input.type = "radio";
+            input.name = nomeCampo;
+            input.value = String(v);
+            input.required = true;
+            label.appendChild(input);
+            label.appendChild(document.createTextNode(String(v)));
+            escala.appendChild(label);
+          }
+          item.appendChild(escala);
+
+          const legenda = document.createElement("div");
+          legenda.className = "maf-legenda-escala";
+          legenda.innerHTML = "<span>Discordo Totalmente</span><span>Concordo Totalmente</span>";
+          item.appendChild(legenda);
+
+          card.appendChild(item);
+        });
+        container.appendChild(card);
+      }
+    }
+
+    function coletarRespostas() {
+      const respostas = {};
+      for (const bloco of BLOCOS) {
+        respostas[bloco.chave] = bloco.perguntas.map((_, idx) => {
+          const el = document.querySelector(`input[name="${bloco.chave}_${idx}"]:checked`);
+          return el ? Number(el.value) : null;
+        });
+      }
+      return respostas;
+    }
+
+    function todasRespondidas(respostas) {
+      return Object.values(respostas).every((arr) => arr.every((v) => v !== null));
+    }
+
+    async function inicializar() {
+      const { token, setor } = lerParametros();
+      if (!token || !setor) {
+        document.getElementById("aviso-link-invalido").hidden = false;
+        return;
+      }
+      renderizarBlocos();
+      document.getElementById("area-formulario").hidden = false;
+
+      document.getElementById("form-maf").addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const avisoEnvio = document.getElementById("aviso-envio");
+        avisoEnvio.hidden = true;
+
+        const respostas = coletarRespostas();
+        if (!todasRespondidas(respostas)) {
+          avisoEnvio.textContent = "Responda todos os 16 itens antes de enviar.";
+          avisoEnvio.hidden = false;
+          window.scrollTo({ top: 0, behavior: "smooth" });
+          return;
+        }
+
+        const btn = document.getElementById("btn-enviar");
+        btn.disabled = true;
+        btn.textContent = "Enviando...";
+
+        try {
+          const respondente_hash = await obterRespondenteHash(setor);
+          const payload = {
+            token_instituicao: token,
+            setor_id: setor,
+            periodo: primeiroDiaDoMesAtual(),
+            respondente_hash,
+            respostas,
+          };
+
+          const resp = await fetch(`${window.MAF_CONFIG.N8N_BASE_URL}/webhook/maf-intake`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          const corpo = await resp.json().catch(() => ({}));
+
+          if (resp.ok && corpo.status === "recebido") {
+            document.getElementById("area-formulario").hidden = true;
+            document.getElementById("area-sucesso").hidden = false;
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          } else {
+            avisoEnvio.textContent =
+              "Não foi possível registrar sua resposta (" + (corpo.motivo || "erro desconhecido") + "). Tente novamente em instantes.";
+            avisoEnvio.hidden = false;
+            btn.disabled = false;
+            btn.textContent = "Enviar respostas";
+          }
+        } catch (erro) {
+          avisoEnvio.textContent = "Falha de conexão. Verifique sua internet e tente novamente.";
+          avisoEnvio.hidden = false;
+          btn.disabled = false;
+          btn.textContent = "Enviar respostas";
+        }
+      });
+    }
+
+    inicializar();
+  </script>
+</body>
+</html>

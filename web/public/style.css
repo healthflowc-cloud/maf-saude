@@ -1,0 +1,125 @@
+/* MAF-Saúde — estilo compartilhado das páginas públicas (formulário + relatório).
+   Paleta inspirada na Triagem de Manchester (Seção 7 do docx): vermelho=crítico,
+   laranja/amarelo=alerta, azul=neutro/funcional, verde=padrão ouro. */
+:root {
+  --maf-azul: #1a5f7a;
+  --maf-azul-claro: #e8f2f5;
+  --maf-vermelho: #c0392b;
+  --maf-laranja: #d68910;
+  --maf-amarelo: #b7950b;
+  --maf-azulneutro: #2874a6;
+  --maf-verde: #1e8449;
+  --maf-texto: #1c2833;
+  --maf-borda: #d5dbdb;
+  --maf-fundo: #f7f9f9;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--maf-fundo);
+  color: var(--maf-texto);
+  line-height: 1.5;
+}
+.maf-header {
+  background: var(--maf-azul);
+  color: #fff;
+  padding: 20px 24px;
+}
+.maf-header h1 { margin: 0; font-size: 1.3rem; }
+.maf-header p { margin: 4px 0 0; opacity: 0.85; font-size: 0.9rem; }
+.maf-container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+.maf-card {
+  background: #fff;
+  border: 1px solid var(--maf-borda);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.maf-bloco-titulo {
+  font-weight: 600;
+  color: var(--maf-azul);
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+.maf-bloco-sub { margin: 0 0 16px; font-size: 0.85rem; color: #566573; }
+.maf-item { margin-bottom: 18px; }
+.maf-item p.pergunta { margin: 0 0 8px; font-size: 0.95rem; }
+.maf-escala {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+}
+.maf-escala label {
+  flex: 1;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #566573;
+  cursor: pointer;
+  border: 1px solid var(--maf-borda);
+  border-radius: 6px;
+  padding: 8px 2px 6px;
+  user-select: none;
+}
+.maf-escala input { display: block; margin: 0 auto 4px; }
+.maf-escala label:has(input:checked) {
+  border-color: var(--maf-azul);
+  background: var(--maf-azul-claro);
+  color: var(--maf-azul);
+  font-weight: 600;
+}
+.maf-legenda-escala {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: #839192;
+  margin-top: 2px;
+}
+.maf-btn {
+  background: var(--maf-azul);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 14px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  width: 100%;
+  cursor: pointer;
+}
+.maf-btn:disabled { background: #aab7b8; cursor: not-allowed; }
+.maf-aviso {
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+}
+.maf-aviso.erro { background: #fdedec; color: var(--maf-vermelho); border: 1px solid #f5b7b1; }
+.maf-aviso.sucesso { background: #eafaf1; color: var(--maf-verde); border: 1px solid #a9dfbf; }
+.maf-aviso.info { background: var(--maf-azul-claro); color: var(--maf-azul); border: 1px solid #aed6f1; }
+
+/* ---- Página de relatório ---- */
+.maf-nivel-badge {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #fff;
+}
+.maf-nivel-1 { background: var(--maf-vermelho); }
+.maf-nivel-2 { background: var(--maf-laranja); }
+.maf-nivel-3 { background: var(--maf-amarelo); }
+.maf-nivel-4 { background: var(--maf-azulneutro); }
+.maf-nivel-5 { background: var(--maf-verde); }
+.maf-iao-numero { font-size: 2.4rem; font-weight: 800; color: var(--maf-azul); margin: 4px 0; }
+table.maf-blocos { width: 100%; border-collapse: collapse; margin-top: 8px; }
+table.maf-blocos td, table.maf-blocos th {
+  text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--maf-borda); font-size: 0.9rem;
+}
+.maf-barra-fundo { background: #eaecee; border-radius: 4px; height: 10px; overflow: hidden; width: 100%; }
+.maf-barra-preenchida { background: var(--maf-azulneutro); height: 100%; }
+.maf-footer-nota { font-size: 0.75rem; color: #839192; margin-top: 24px; text-align: center; }

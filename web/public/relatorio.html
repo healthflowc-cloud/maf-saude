@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Relatório MAF-Saúde</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="maf-header">
+    <h1>Diagnóstico MAF-Saúde</h1>
+    <p id="subtitulo-header">Índice de Aderência Orgânica do setor</p>
+  </div>
+
+  <div class="maf-container">
+    <div id="aviso-link-invalido" class="maf-aviso erro" hidden>
+      Link de relatório inválido ou incompleto (faltam parâmetros na URL).
+    </div>
+
+    <div id="aviso-processando" class="maf-aviso info" hidden>
+      O relatório ainda está sendo processado. Isso normalmente leva poucos segundos após a última resposta ser enviada.
+      <div style="margin-top:8px;"><button class="maf-btn" id="btn-tentar-novamente" style="width:auto; padding:8px 16px;">Tentar novamente</button></div>
+    </div>
+
+    <div id="aviso-erro" class="maf-aviso erro" hidden></div>
+
+    <div id="area-relatorio" hidden>
+      <div class="maf-card">
+        <p style="margin:0 0 4px; font-size:0.85rem; color:#566573;" id="linha-identificacao"></p>
+        <span id="badge-nivel" class="maf-nivel-badge"></span>
+        <p class="maf-iao-numero" id="valor-iao"></p>
+        <p style="margin:0; font-size:0.85rem; color:#566573;" id="nota-valor-usado"></p>
+      </div>
+
+      <div class="maf-card">
+        <p class="maf-bloco-titulo">Médias por bloco (escala 1–5)</p>
+        <table class="maf-blocos" id="tabela-blocos"></table>
+      </div>
+
+      <div class="maf-card">
+        <p class="maf-bloco-titulo">Ponto de atenção principal</p>
+        <p id="texto-ponto-atencao" style="margin:0 0 12px;"></p>
+        <p class="maf-bloco-titulo">Ação recomendada (Protocolo MAF-Saúde)</p>
+        <p id="texto-acao" style="margin:0;"></p>
+      </div>
+
+      <div id="card-alerta" class="maf-card" hidden>
+        <p style="margin:0;">⚠️ Este setor está <b>abaixo do limiar mínimo aceitável</b> para seu nível de criticidade. Recomenda-se priorização imediata (ver SLA de intervenção no README técnico do projeto).</p>
+      </div>
+
+      <div id="card-amostra-aviso" class="maf-aviso info" hidden></div>
+
+      <p class="maf-footer-nota" id="rodape-gerado-em"></p>
+    </div>
+
+    <p class="maf-footer-nota">Modelo MAF-Saúde — UTAUT + TAM + Lean Healthcare · Weknow Healthtech</p>
+  </div>
+
+  <script src="config.js"></script>
+  <script>
+    function lerParametros() {
+      const params = new URLSearchParams(window.location.search);
+      return { setor_id: params.get("setor_id"), periodo: params.get("periodo") };
+    }
+
+    function mostrarSomente(id) {
+      ["aviso-link-invalido", "aviso-processando", "aviso-erro", "area-relatorio"].forEach((elId) => {
+        document.getElementById(elId).hidden = elId !== id;
+      });
+    }
+
+    function renderizarRelatorio(conteudo, geradoEm) {
+      const r = conteudo;
+      document.getElementById("linha-identificacao").textContent =
+        `${r.instituicao_nome} — ${r.setor_nome} — período ${r.periodo}`;
+
+      const nivel = r.resumo_executivo.nivel_maturidade;
+      const badge = document.getElementById("badge-nivel");
+      badge.textContent = `${r.resumo_executivo.perfil_radar} Nível ${nivel} — ${r.resumo_executivo.status}`;
+      badge.className = `maf-nivel-badge maf-nivel-${nivel}`;
+
+      document.getElementById("valor-iao").textContent =
+        r.resumo_executivo.iao_critico !== null && r.resumo_executivo.iao_critico !== undefined
+          ? `IAO crítico: ${r.resumo_executivo.iao_critico}`
+          : `IAO: ${r.resumo_executivo.iao}`;
+
+      document.getElementById("nota-valor-usado").textContent =
+        `Setor de criticidade: ${r.resumo_executivo.rotulo_criticidade_setor}` +
+        (r.resumo_executivo.iao_critico !== null && r.resumo_executivo.iao_critico !== undefined
+          ? ` — fórmula ponderada aplicada (Carga Cognitiva com peso dobrado)`
+          : "");
+
+      const tabela = document.getElementById("tabela-blocos");
+      tabela.innerHTML = "<tr><th>Bloco</th><th>Média</th><th></th></tr>";
+      for (const chave of ["VC", "UI", "FD", "CC"]) {
+        const b = r.blocos[chave];
+        const pct = Math.max(0, Math.min(100, (b.media / 5) * 100));
+        const tr = document.createElement("tr");
+        tr.innerHTML =
+          `<td>${b.nome} (${chave})</td><td>${b.media.toFixed(2)}</td>` +
+          `<td style="width:40%;"><div class="maf-barra-fundo"><div class="maf-barra-preenchida" style="width:${pct}%;"></div></div></td>`;
+        tabela.appendChild(tr);
+      }
+
+      document.getElementById("texto-ponto-atencao").textContent = r.ponto_de_atencao_principal.observacao;
+      document.getElementById("texto-acao").textContent = r.acao_recomendada;
+
+      document.getElementById("card-alerta").hidden = !r.alerta.deve_alertar;
+
+      const avisoAmostra = document.getElementById("card-amostra-aviso");
+      if (r.amostra.inconclusivo) {
+        avisoAmostra.textContent = r.amostra.aviso;
+        avisoAmostra.hidden = false;
+      } else {
+        avisoAmostra.hidden = true;
+      }
+
+      document.getElementById("rodape-gerado-em").textContent =
+        `Amostra: ${r.amostra.n_respondentes} respondente(s) · Relatório gerado em ${new Date(geradoEm).toLocaleString("pt-BR")}`;
+
+      mostrarSomente("area-relatorio");
+    }
+
+    async function carregarRelatorio() {
+      const { setor_id, periodo } = lerParametros();
+      if (!setor_id || !periodo) {
+        mostrarSomente("aviso-link-invalido");
+        return;
+      }
+
+      const url =
+        `${window.MAF_CONFIG.SUPABASE_URL}/rest/v1/relatorios_diagnostico` +
+        `?setor_id=eq.${encodeURIComponent(setor_id)}&periodo=eq.${encodeURIComponent(periodo)}` +
+        `&select=conteudo,gerado_em`;
+
+      try {
+        const resp = await fetch(url, {
+          headers: {
+            apikey: window.MAF_CONFIG.SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${window.MAF_CONFIG.SUPABASE_ANON_KEY}`,
+          },
+        });
+
+        if (!resp.ok) {
+          throw new Error("HTTP " + resp.status);
+        }
+
+        const linhas = await resp.json();
+        if (!Array.isArray(linhas) || linhas.length === 0) {
+          mostrarSomente("aviso-processando");
+          return;
+        }
+
+        renderizarRelatorio(linhas[0].conteudo, linhas[0].gerado_em);
+      } catch (erro) {
+        document.getElementById("aviso-erro").textContent =
+          "Não foi possível carregar o relatório agora. Tente novamente em instantes.";
+        mostrarSomente("aviso-erro");
+      }
+    }
+
+    document.getElementById("btn-tentar-novamente").addEventListener("click", carregarRelatorio);
+    carregarRelatorio();
+  </script>
+</body>
+</html>
