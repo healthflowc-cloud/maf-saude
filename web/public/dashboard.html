@@ -17,7 +17,7 @@
 
     <!-- Passo 1: completar cadastro da instituição (só aparece na primeira vez) -->
     <div id="area-completar-cadastro" class="maf-card" hidden>
-      <h3 style="margin-top:0; color:var(--maf-azul);">Complete o cadastro da sua instituição</h3>
+      <h3 style="margin-top:0; color:var(--maf-petroleo);">Complete o cadastro da sua instituição</h3>
       <form id="form-instituicao">
         <div class="maf-form-group">
           <label for="inst-nome">Nome da instituição</label>
@@ -42,8 +42,25 @@
     <!-- Passo 2: painel normal -->
     <div id="area-dashboard" hidden>
       <div class="maf-card">
-        <h3 id="inst-nome-titulo" style="margin:0 0 4px; color:var(--maf-azul);"></h3>
-        <p style="margin:0; font-size:0.85rem; color:#566573;" id="inst-subtitulo"></p>
+        <h3 id="inst-nome-titulo" style="margin:0 0 4px; color:var(--maf-petroleo);"></h3>
+        <p style="margin:0; font-size:0.85rem; color:var(--maf-texto-sub);" id="inst-subtitulo"></p>
+      </div>
+
+      <!-- Dashboard Geral: agregados de toda a instituição -->
+      <div class="maf-card">
+        <h3 style="margin-top:0; color:var(--maf-petroleo);">Dashboard geral da instituição</h3>
+        <p style="margin:0 0 12px; font-size:0.8rem; color:var(--maf-texto-sub);">
+          Consolidado de todos os setores e diagnósticos já realizados.
+        </p>
+        <div id="kpi-carregando" style="font-size:0.85rem; color:var(--maf-texto-sub);">Calculando indicadores...</div>
+        <div id="kpi-vazio" style="font-size:0.85rem; color:var(--maf-texto-sub);" hidden>
+          Ainda não há diagnósticos gerados — os indicadores aparecem aqui assim que o primeiro setor tiver respostas.
+        </div>
+        <div id="kpi-grid" class="maf-kpi-grid" hidden></div>
+        <div id="kpi-nota-por-setor" style="margin-top:16px;" hidden>
+          <p class="maf-bloco-titulo" style="font-size:0.85rem;">Nota individual por setor (última rodada)</p>
+          <table class="maf-blocos" id="tabela-nota-setor"></table>
+        </div>
       </div>
 
       <div class="maf-card">
@@ -51,7 +68,7 @@
         <div id="lista-setores"></div>
 
         <details style="margin-top:12px;">
-          <summary style="cursor:pointer; font-weight:600; color:var(--maf-azul);">+ Adicionar setor</summary>
+          <summary style="cursor:pointer; font-weight:600; color:var(--maf-petroleo);">+ Adicionar setor</summary>
           <form id="form-setor" style="margin-top:12px;">
             <div class="maf-form-group">
               <label for="setor-nome">Nome do setor</label>
@@ -65,13 +82,37 @@
                 <option value="3">3 — Urgência/Intensiva (alta criticidade)</option>
               </select>
             </div>
+            <div class="maf-form-group">
+              <label for="setor-funcionarios">Quantidade de funcionários</label>
+              <input class="maf-input" type="number" min="0" id="setor-funcionarios" />
+              <span class="maf-form-hint">Opcional. Usado para sugerir a meta de respondentes (30% do quadro, piso de 5).</span>
+            </div>
+            <div class="maf-form-group">
+              <label for="setor-meta">Meta de respondentes por rodada</label>
+              <input class="maf-input" type="number" min="1" id="setor-meta" />
+              <span class="maf-form-hint">Opcional. Se vazio, usamos a sugestão acima no Dashboard geral.</span>
+            </div>
+            <div class="maf-form-group">
+              <label for="setor-sistema">Sistema informatizado avaliado</label>
+              <input class="maf-input" id="setor-sistema" placeholder="Ex.: Prontuário Eletrônico X, ERP Y" />
+              <span class="maf-form-hint">Opcional. É o sistema que o questionário deste setor está avaliando.</span>
+            </div>
+            <div class="maf-form-group">
+              <label for="setor-responsavel-nome">Responsável pelo setor</label>
+              <input class="maf-input" id="setor-responsavel-nome" />
+            </div>
+            <div class="maf-form-group">
+              <label for="setor-responsavel-email">E-mail do responsável</label>
+              <input class="maf-input" type="email" id="setor-responsavel-email" />
+              <span class="maf-form-hint">Opcional. Sugerido automaticamente ao enviar o relatório por e-mail.</span>
+            </div>
             <button type="submit" class="maf-btn" id="btn-add-setor">Criar setor</button>
           </form>
         </details>
       </div>
     </div>
 
-    <p class="maf-footer-nota">Modelo MAF-Saúde — UTAUT + TAM + Lean Healthcare · Weknow Healthtech</p>
+    <p class="maf-footer-nota">Modelo MAF-Saúde — Metodologia UTAUT + TAM + Lean Healthcare</p>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
@@ -79,6 +120,10 @@
   <script>
     const supa = supabase.createClient(window.MAF_CONFIG.SUPABASE_URL, window.MAF_CONFIG.SUPABASE_ANON_KEY);
     const CRITICIDADE_LABEL = { 1: "Administrativo", 2: "Assistencial eletivo", 3: "Alta criticidade" };
+    const NIVEL_LABEL = {
+      1: "Risco iminente", 2: "Adoção dolorosa", 3: "Estabilidade burocrática",
+      4: "Fluidez operacional", 5: "Padrão-ouro MAF",
+    };
     let sessaoAtual = null;
     let instituicaoAtual = null;
 
@@ -107,43 +152,201 @@
       }
     }
 
+    // Meta sugerida de respondentes: explícita (setor.meta_respondentes) ou
+    // heurística a partir do quadro de funcionários (30%, piso de 5 — mesmo
+    // piso técnico citado no aviso de amostra inconclusiva do MVP).
+    function metaDoSetor(setor) {
+      if (setor.meta_respondentes) return setor.meta_respondentes;
+      if (setor.quantidade_funcionarios) return Math.max(5, Math.ceil(setor.quantidade_funcionarios * 0.3));
+      return null;
+    }
+
     async function carregarRelatoriosDoSetor(setorId) {
       const { data, error } = await supa
         .from("relatorios_diagnostico")
-        .select("id, periodo, conteudo")
+        .select("id, periodo, conteudo, insights, insights_gerado_em")
         .eq("setor_id", setorId)
         .order("periodo", { ascending: false });
       if (error) return [];
       return data || [];
     }
 
-    function botaoExportDesabilitado(rotulo) {
-      return `<button class="maf-btn-linha" disabled title="Ainda não configurado neste ambiente">${rotulo}</button>`;
+    // ---------------------------------------------------------------------
+    // Exportação / análise: chamam os webhooks reais do n8n (SW-04/SW-05).
+    // access_token = sessão do usuário logado — a RLS de owner_select_* no
+    // Supabase decide, do lado do servidor, se ele tem direito a este
+    // relatório (nunca confiamos só na UI escondendo/mostrando botões).
+    // ---------------------------------------------------------------------
+    function acaoIndisponivel(rotulo, motivo) {
+      return `<button class="maf-btn-linha" disabled title="${motivo}">${rotulo}</button>`;
+    }
+
+    async function chamarWebhookExport(relatorioId, acao, emailDestino) {
+      const resp = await fetch(window.MAF_CONFIG.EXPORT_RELATORIO_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          relatorio_id: relatorioId,
+          access_token: sessaoAtual.access_token,
+          acao,
+          email_destino: emailDestino || undefined,
+        }),
+      });
+      return resp;
+    }
+
+    async function baixarPdf(relatorioId, botao) {
+      const original = botao.textContent;
+      botao.disabled = true;
+      botao.textContent = "Gerando PDF...";
+      try {
+        const resp = await chamarWebhookExport(relatorioId, "download");
+        const tipo = resp.headers.get("content-type") || "";
+        if (!resp.ok || !tipo.includes("application/pdf")) {
+          const corpo = await resp.json().catch(() => ({}));
+          throw new Error(corpo.motivo || corpo.detalhe || `HTTP ${resp.status}`);
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `relatorio-maf-${relatorioId}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } catch (erro) {
+        mostrarErro("Não foi possível exportar o PDF (" + erro.message + ").");
+      } finally {
+        botao.disabled = false;
+        botao.textContent = original;
+      }
+    }
+
+    async function enviarPorEmail(relatorioId, emailPadrao, botao, inputEmail) {
+      const destino = (inputEmail.value || emailPadrao || "").trim();
+      if (!destino || !destino.includes("@")) {
+        inputEmail.focus();
+        return;
+      }
+      const original = botao.textContent;
+      botao.disabled = true;
+      botao.textContent = "Enviando...";
+      try {
+        const resp = await chamarWebhookExport(relatorioId, "email", destino);
+        const corpo = await resp.json().catch(() => ({}));
+        if (!resp.ok || corpo.status !== "ok") {
+          throw new Error(corpo.motivo || corpo.detalhe || `HTTP ${resp.status}`);
+        }
+        botao.textContent = "Enviado!";
+        setTimeout(() => (botao.textContent = original), 2000);
+      } catch (erro) {
+        mostrarErro("Não foi possível enviar o e-mail (" + erro.message + ").");
+        botao.textContent = original;
+      } finally {
+        botao.disabled = false;
+      }
+    }
+
+    async function gerarAnalise(relatorioId, botao, areaResultado) {
+      const original = botao.textContent;
+      botao.disabled = true;
+      botao.textContent = "Analisando...";
+      try {
+        const resp = await fetch(window.MAF_CONFIG.GEMINI_INSIGHTS_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ relatorio_id: relatorioId, access_token: sessaoAtual.access_token }),
+        });
+        const corpo = await resp.json().catch(() => ({}));
+        if (!resp.ok || corpo.status !== "ok") {
+          throw new Error(corpo.motivo || corpo.detalhe || `HTTP ${resp.status}`);
+        }
+        botao.textContent = "Análise pronta";
+        if (areaResultado) {
+          areaResultado.hidden = false;
+          areaResultado.textContent = corpo.insights?.resumo_executivo || "Análise gerada — disponível no PDF exportado.";
+        }
+      } catch (erro) {
+        mostrarErro("Não foi possível gerar a análise (" + erro.message + ").");
+        botao.disabled = false;
+        botao.textContent = original;
+      }
+    }
+
+    function linhaAcoesRelatorio(relatorio, setor, instituicao) {
+      const idBase = `rel-${relatorio.id}`;
+      const emailPadrao = setor.responsavel_email || instituicao.email_contato || "";
+
+      const btnAnalise = window.MAF_CONFIG.GEMINI_INSIGHTS_WEBHOOK_URL
+        ? `<button class="maf-btn-linha" data-acao="analise" data-rel="${relatorio.id}">${relatorio.insights_gerado_em ? "Gerar análise novamente" : "Gerar análise"}</button>`
+        : acaoIndisponivel("Gerar análise", "Webhook do SW-04 não configurado neste ambiente");
+
+      const btnPdf = window.MAF_CONFIG.EXPORT_RELATORIO_WEBHOOK_URL
+        ? `<button class="maf-btn-linha secundario" data-acao="pdf" data-rel="${relatorio.id}">Exportar PDF</button>`
+        : acaoIndisponivel("Exportar PDF", "Webhook do SW-05 não configurado neste ambiente");
+
+      const emailBox = window.MAF_CONFIG.EXPORT_RELATORIO_WEBHOOK_URL
+        ? `<span class="maf-link-box" style="display:inline-flex; margin:2px 0;">
+             <input class="maf-input" type="email" style="min-width:160px; width:auto; padding:6px 8px; font-size:0.78rem;" value="${emailPadrao}" id="${idBase}-email" />
+             <button class="maf-btn-linha" data-acao="email" data-rel="${relatorio.id}">Enviar e-mail</button>
+           </span>`
+        : acaoIndisponivel("Enviar e-mail", "Webhook do SW-05 não configurado neste ambiente");
+
+      return `<div style="margin-top:4px;">
+        ${btnAnalise} ${btnPdf} ${emailBox}
+        <div class="maf-aviso info" id="${idBase}-analise-resultado" hidden style="margin-top:6px; font-size:0.8rem;"></div>
+      </div>`;
+    }
+
+    function ligarAcoesRelatorio(container, setor, instituicao) {
+      container.querySelectorAll('button[data-acao="analise"]').forEach((btn) => {
+        const relId = btn.getAttribute("data-rel");
+        const areaResultado = document.getElementById(`rel-${relId}-analise-resultado`);
+        btn.addEventListener("click", () => gerarAnalise(relId, btn, areaResultado));
+      });
+      container.querySelectorAll('button[data-acao="pdf"]').forEach((btn) => {
+        btn.addEventListener("click", () => baixarPdf(btn.getAttribute("data-rel"), btn));
+      });
+      container.querySelectorAll('button[data-acao="email"]').forEach((btn) => {
+        const relId = btn.getAttribute("data-rel");
+        const input = document.getElementById(`rel-${relId}-email`);
+        btn.addEventListener("click", () => enviarPorEmail(relId, input.value, btn, input));
+      });
     }
 
     async function renderSetores(instituicao) {
       const container = document.getElementById("lista-setores");
       const { data: setores, error } = await supa
         .from("setores")
-        .select("id, nome, nivel_criticidade")
+        .select("id, nome, nivel_criticidade, quantidade_funcionarios, meta_respondentes, sistema_principal, responsavel_nome, responsavel_email")
         .eq("instituicao_id", instituicao.id)
         .order("created_at", { ascending: true });
 
       if (error) {
         container.innerHTML = "";
         mostrarErro("Não foi possível carregar os setores (" + error.message + ").");
-        return;
+        return [];
       }
 
       if (!setores || setores.length === 0) {
-        container.innerHTML = '<p style="font-size:0.9rem; color:#566573;">Nenhum setor cadastrado ainda — crie o primeiro abaixo.</p>';
-        return;
+        container.innerHTML = '<p style="font-size:0.9rem; color:var(--maf-texto-sub);">Nenhum setor cadastrado ainda — crie o primeiro abaixo.</p>';
+        return [];
       }
 
+      const relatoriosPorSetor = {};
       const blocos = await Promise.all(
         setores.map(async (setor) => {
           const relatorios = await carregarRelatoriosDoSetor(setor.id);
+          relatoriosPorSetor[setor.id] = relatorios;
           const link = linkFormulario(instituicao.token_acesso, setor.id);
+
+          const metaLinha = [];
+          if (setor.quantidade_funcionarios) metaLinha.push(`${setor.quantidade_funcionarios} funcionário(s)`);
+          if (setor.sistema_principal) metaLinha.push(`sistema avaliado: ${setor.sistema_principal}`);
+          if (setor.responsavel_nome) metaLinha.push(`responsável: ${setor.responsavel_nome}`);
+          const metaSugerida = metaDoSetor(setor);
+          if (metaSugerida) metaLinha.push(`meta: ${metaSugerida} respondentes/rodada`);
 
           const linhasRelatorios = relatorios.length
             ? relatorios
@@ -153,37 +356,129 @@
                   const statusBadge = r.conteudo?.amostra?.inconclusivo
                     ? ' <span class="maf-badge-criticidade">amostra inconclusiva</span>'
                     : "";
-                  return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-top:1px solid var(--maf-borda); font-size:0.85rem;">
-                    <span><a class="maf-link" href="${linkRelatorio(setor.id, r.periodo)}" target="_blank">${r.periodo}</a> — IAO ${iao} (nível ${nivel})${statusBadge}</span>
-                    <span>
-                      ${botaoExportDesabilitado("Gerar análise")}
-                      ${botaoExportDesabilitado("Exportar PDF")}
-                      ${botaoExportDesabilitado("Enviar e-mail")}
-                    </span>
+                  return `<div style="padding:8px 0; border-top:1px solid var(--maf-borda); font-size:0.85rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+                      <span><a class="maf-link" href="${linkRelatorio(setor.id, r.periodo)}" target="_blank">${r.periodo}</a> — IAO ${iao} (nível ${nivel})${statusBadge}</span>
+                    </div>
+                    ${linhaAcoesRelatorio(r, setor, instituicao)}
                   </div>`;
                 })
                 .join("")
-            : '<p style="font-size:0.82rem; color:#839192; margin:8px 0 0;">Nenhum diagnóstico gerado ainda para este setor.</p>';
+            : '<p style="font-size:0.82rem; color:var(--maf-texto-sub); margin:8px 0 0;">Nenhum diagnóstico gerado ainda para este setor.</p>';
 
-          return `<div class="maf-setor-card">
+          return { setor, html: `<div class="maf-setor-card">
             <h3>${setor.nome} <span class="maf-badge-criticidade">${CRITICIDADE_LABEL[setor.nivel_criticidade] || setor.nivel_criticidade}</span></h3>
+            ${metaLinha.length ? `<p class="maf-setor-meta">${metaLinha.join(" · ")}</p>` : ""}
             <div class="maf-link-box">
               <input class="maf-input" type="text" readonly value="${link}" />
               <button class="maf-btn-linha" data-link="${link}">Copiar link do formulário</button>
             </div>
             ${linhasRelatorios}
-          </div>`;
+          </div>` };
         })
       );
 
-      container.innerHTML = blocos.join("");
+      container.innerHTML = blocos.map((b) => b.html).join("");
       container.querySelectorAll("button[data-link]").forEach((btn) => {
         btn.addEventListener("click", () => copiar(btn.getAttribute("data-link"), btn));
       });
+      blocos.forEach(({ setor }) => ligarAcoesRelatorio(container, setor, instituicao));
+
+      return setores.map((s) => ({ ...s, relatorios: relatoriosPorSetor[s.id] || [] }));
+    }
+
+    // ---------------------------------------------------------------------
+    // Dashboard geral: agrega os dados já carregados por renderSetores —
+    // nenhuma tabela nova, nenhuma policy nova (usa as mesmas linhas que o
+    // dono já enxerga via owner_select_setores/owner_select_relatorios).
+    // Não usa respostas_validadas (sem grant para authenticated, de
+    // propósito — ver 003_auth_instituicoes.sql) — o nº de respondentes vem
+    // de conteudo.amostra.n_respondentes, já calculado pelo SW-02/03.
+    // ---------------------------------------------------------------------
+    function renderizarDashboardGeral(setoresComRelatorios) {
+      document.getElementById("kpi-carregando").hidden = true;
+
+      const todosRelatorios = setoresComRelatorios.flatMap((s) => s.relatorios.map((r) => ({ ...r, setor: s })));
+      if (todosRelatorios.length === 0) {
+        document.getElementById("kpi-vazio").hidden = false;
+        return;
+      }
+
+      const totalPesquisas = todosRelatorios.length;
+      const totalRespostas = todosRelatorios.reduce((soma, r) => soma + (r.conteudo?.amostra?.n_respondentes || 0), 0);
+      const mediaRespPorPesquisa = totalPesquisas ? (totalRespostas / totalPesquisas) : 0;
+      const comIA = todosRelatorios.filter((r) => r.insights_gerado_em).length;
+
+      let metaTotal = 0;
+      let setoresComMeta = 0;
+      for (const s of setoresComRelatorios) {
+        const m = metaDoSetor(s);
+        if (m) { metaTotal += m; setoresComMeta++; }
+      }
+      const percentualMeta = metaTotal > 0 ? Math.min(100, (totalRespostas / metaTotal) * 100) : null;
+
+      // última rodada por setor, para nota geral e nota individual
+      const ultimaPorSetor = setoresComRelatorios
+        .map((s) => {
+          const ultima = [...s.relatorios].sort((a, b) => (a.periodo < b.periodo ? 1 : -1))[0];
+          return ultima ? { setor: s, relatorio: ultima } : null;
+        })
+        .filter(Boolean);
+
+      const notasValidas = ultimaPorSetor
+        .map(({ relatorio }) => relatorio.conteudo?.resumo_executivo?.valor_usado_na_classificacao ?? relatorio.conteudo?.resumo_executivo?.iao)
+        .filter((v) => typeof v === "number");
+      const notaGeral = notasValidas.length ? (notasValidas.reduce((a, b) => a + b, 0) / notasValidas.length) : null;
+
+      let setorMaisCritico = null;
+      for (const { setor, relatorio } of ultimaPorSetor) {
+        const valor = relatorio.conteudo?.resumo_executivo?.valor_usado_na_classificacao ?? relatorio.conteudo?.resumo_executivo?.iao;
+        if (typeof valor !== "number") continue;
+        if (!setorMaisCritico || valor < setorMaisCritico.valor) setorMaisCritico = { nome: setor.nome, valor };
+      }
+
+      const kpis = [
+        { valor: setoresComRelatorios.length, rotulo: "Setores cadastrados" },
+        { valor: totalPesquisas, rotulo: "Pesquisas realizadas" },
+        { valor: totalRespostas, rotulo: "Respostas coletadas" },
+        { valor: mediaRespPorPesquisa.toFixed(1), rotulo: "Respostas por pesquisa (média)" },
+        { valor: notaGeral !== null ? notaGeral.toFixed(2) : "—", rotulo: "Nota geral (IAO médio, última rodada)" },
+        { valor: `${comIA}/${totalPesquisas}`, rotulo: "Relatórios com análise de IA" },
+      ];
+      if (setorMaisCritico) {
+        kpis.push({ valor: setorMaisCritico.valor.toFixed(2), rotulo: `Ponto de atenção: ${setorMaisCritico.nome}`, alerta: true });
+      }
+
+      const grid = document.getElementById("kpi-grid");
+      grid.hidden = false;
+      grid.innerHTML = kpis
+        .map((k) => `<div class="maf-kpi${k.alerta ? " alerta" : ""}"><div class="valor">${k.valor}</div><div class="rotulo">${k.rotulo}</div></div>`)
+        .join("") +
+        (percentualMeta !== null
+          ? `<div class="maf-kpi">
+               <div class="valor">${percentualMeta.toFixed(0)}%</div>
+               <div class="rotulo">Meta de respondentes atingida (${setoresComMeta}/${setoresComRelatorios.length} setores com meta definida)</div>
+               <div class="maf-progresso-meta"><div style="width:${percentualMeta}%;"></div></div>
+             </div>`
+          : "");
+
+      const tabela = document.getElementById("tabela-nota-setor");
+      if (ultimaPorSetor.length) {
+        document.getElementById("kpi-nota-por-setor").hidden = false;
+        tabela.innerHTML = "<tr><th>Setor</th><th>Período</th><th>Nota (IAO)</th><th>Nível</th></tr>" +
+          ultimaPorSetor
+            .map(({ setor, relatorio }) => {
+              const r = relatorio.conteudo?.resumo_executivo || {};
+              const nota = r.valor_usado_na_classificacao ?? r.iao ?? "—";
+              const nivel = r.nivel_maturidade ? `${r.nivel_maturidade} — ${NIVEL_LABEL[r.nivel_maturidade] || ""}` : "—";
+              return `<tr><td>${setor.nome}</td><td>${relatorio.periodo}</td><td>${typeof nota === "number" ? nota.toFixed(2) : nota}</td><td>${nivel}</td></tr>`;
+            })
+            .join("");
+      }
     }
 
     async function carregarInstituicao() {
-      const { data, error } = await supa.from("instituicoes").select("*").limit(1);
+      const { data, error } = await supa.from("instituicoes").select("*").order("created_at", { ascending: true }).limit(1);
       if (error) {
         mostrarErro("Não foi possível carregar sua instituição (" + error.message + ").");
         return;
@@ -197,7 +492,8 @@
       document.getElementById("inst-nome-titulo").textContent = instituicaoAtual.nome;
       document.getElementById("inst-subtitulo").textContent =
         `Porte ${instituicaoAtual.porte} — contato: ${instituicaoAtual.email_contato}`;
-      await renderSetores(instituicaoAtual);
+      const setoresComRelatorios = await renderSetores(instituicaoAtual);
+      renderizarDashboardGeral(setoresComRelatorios);
     }
 
     document.getElementById("form-instituicao").addEventListener("submit", async (ev) => {
@@ -230,10 +526,18 @@
       btn.disabled = true;
       btn.textContent = "Criando...";
 
+      const funcionarios = document.getElementById("setor-funcionarios").value;
+      const meta = document.getElementById("setor-meta").value;
+
       const { error } = await supa.from("setores").insert({
         instituicao_id: instituicaoAtual.id,
         nome: document.getElementById("setor-nome").value.trim(),
         nivel_criticidade: Number(document.getElementById("setor-criticidade").value),
+        quantidade_funcionarios: funcionarios ? Number(funcionarios) : null,
+        meta_respondentes: meta ? Number(meta) : null,
+        sistema_principal: document.getElementById("setor-sistema").value.trim() || null,
+        responsavel_nome: document.getElementById("setor-responsavel-nome").value.trim() || null,
+        responsavel_email: document.getElementById("setor-responsavel-email").value.trim() || null,
       });
 
       btn.disabled = false;
@@ -245,7 +549,8 @@
       }
 
       document.getElementById("form-setor").reset();
-      await renderSetores(instituicaoAtual);
+      const setoresComRelatorios = await renderSetores(instituicaoAtual);
+      renderizarDashboardGeral(setoresComRelatorios);
     });
 
     document.getElementById("btn-sair").addEventListener("click", async () => {

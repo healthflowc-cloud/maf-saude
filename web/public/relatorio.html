@@ -38,10 +38,26 @@
       </div>
 
       <div class="maf-card">
+        <p class="maf-bloco-titulo">Pontos fortes e oportunidades de evolução</p>
+        <div class="maf-duas-colunas" id="colunas-fortes-oportunidades"></div>
+      </div>
+
+      <div class="maf-card">
         <p class="maf-bloco-titulo">Ponto de atenção principal</p>
         <p id="texto-ponto-atencao" style="margin:0 0 12px;"></p>
         <p class="maf-bloco-titulo">Ação recomendada (Protocolo MAF-Saúde)</p>
-        <p id="texto-acao" style="margin:0;"></p>
+        <p id="texto-acao" style="margin:0 0 12px;"></p>
+        <div id="area-como-melhorar" hidden>
+          <p class="maf-bloco-titulo" style="font-size:0.9rem;">Como melhorar</p>
+          <ul id="lista-como-melhorar" style="margin:0 0 0 18px; padding:0; font-size:0.88rem;"></ul>
+        </div>
+      </div>
+
+      <div id="area-plano-acao" class="maf-plano-acao" hidden>
+        <h4>Plano de ação sugerido</h4>
+        <p style="margin:0 0 6px;"><b>Imediato:</b> <span id="plano-imediato"></span></p>
+        <p style="margin:0 0 6px;"><b>Curto prazo (até 90 dias):</b> <span id="plano-curto"></span></p>
+        <p style="margin:0;"><b>Médio prazo:</b> <span id="plano-medio"></span></p>
       </div>
 
       <div id="card-alerta" class="maf-card" hidden>
@@ -50,10 +66,17 @@
 
       <div id="card-amostra-aviso" class="maf-aviso info" hidden></div>
 
+      <div id="area-insights-ia" class="maf-card" hidden>
+        <p class="maf-bloco-titulo">Análise gerada por IA</p>
+        <p id="ia-resumo" style="margin:0 0 10px;"></p>
+        <p id="ia-avaliacao" style="margin:0 0 10px; font-size:0.9rem;"></p>
+        <div id="ia-blocos"></div>
+      </div>
+
       <p class="maf-footer-nota" id="rodape-gerado-em"></p>
     </div>
 
-    <p class="maf-footer-nota">Modelo MAF-Saúde — UTAUT + TAM + Lean Healthcare · Weknow Healthtech</p>
+    <p class="maf-footer-nota">Modelo MAF-Saúde — Metodologia UTAUT + TAM + Lean Healthcare</p>
   </div>
 
   <script src="config.js"></script>
@@ -69,7 +92,116 @@
       });
     }
 
-    function renderizarRelatorio(conteudo, geradoEm) {
+    // ---------------------------------------------------------------------
+    // Conteúdo informativo adicional (valor agregado além dos números
+    // crus). Duplicado propositalmente na Edge Function do PDF
+    // (supabase/functions/gerar-pdf-relatorio/index.ts) — mesmo debito
+    // técnico já documentado de duas implementações do layout do relatório.
+    // ---------------------------------------------------------------------
+    const COMO_MELHORAR = {
+      VC: [
+        "Priorize a integração de dados clínicos já existentes (histórico, exames, alergias) nas telas mais usadas.",
+        "Registre exemplos concretos de decisões que o sistema ajudou ou atrapalhou — é a evidência que prioriza melhorias com a equipe de TI.",
+      ],
+      UI: [
+        "Compare o fluxo real de trabalho com o fluxo do sistema — cada divergência é candidata a redesenho de tela.",
+        "Padronize a ordem dos campos críticos (sinais vitais, alergias) para reduzir a carga de decisão.",
+      ],
+      FD: [
+        "Identifique os campos mais redigitados entre telas e proponha integração ou preenchimento automático.",
+        "Registre travamentos/lentidão com horário — é o dado que justifica investimento em infraestrutura.",
+      ],
+      CC: [
+        "Reduza alertas não críticos — fadiga de alerta é um risco de segurança do paciente bem documentado na literatura.",
+        "Simplifique a hierarquia visual das telas mais usadas — menos cores/botões concorrendo por atenção.",
+      ],
+    };
+
+    const PLANO_ACAO_POR_NIVEL = {
+      1: { imediato: "Reengenharia total ou troca de software.", curto: "Mapear os 3 pontos de maior fricção e formar um mutirão Lean de resposta rápida.", medio: "Reavaliar em 60 dias com nova rodada do questionário para medir o efeito das mudanças." },
+      2: { imediato: "Mutirão Lean: reduzir cliques/pop-ups (SLA 72h).", curto: "Padronizar os fluxos mais usados e treinar multiplicadores por turno.", medio: "Reaplicar o diagnóstico em 90 dias e comparar o IAO por bloco." },
+      3: { imediato: "Integrações via API, suporte à decisão clínica.", curto: "Priorizar 1–2 integrações de maior impacto apontadas pelo bloco mais fraco.", medio: "Formalizar um comitê de governança de TI clínica com revisão trimestral." },
+      4: { imediato: "Sustentação e escuta contínua.", curto: "Criar canal permanente de feedback dos usuários finais.", medio: "Monitorar a tendência do IAO por setor a cada ciclo, sem reduzir a cadência." },
+      5: { imediato: "Certificação + Employer Branding.", curto: "Documentar as práticas que levaram ao Selo Padrão Ouro MAF como referência interna.", medio: "Usar o setor como padrão de benchmarking interno para os demais." },
+    };
+
+    // "Fortes" = blocos favoráveis (VC/UI altos, FD/CC baixos); "oportunidades"
+    // = o inverso — mesma heurística por bloco de report_logic.js, sem
+    // recalcular nada, só reordenando para apresentação em duas colunas.
+    function renderizarFortesOportunidades(blocos) {
+      const NOMES = { VC: "Valor Clínico Percebido", UI: "Usabilidade Invisível", FD: "Fricção Digital", CC: "Carga Cognitiva" };
+      const favoravelSeAlto = { VC: true, UI: true, FD: false, CC: false };
+      const pontuados = Object.entries(blocos).map(([sigla, b]) => ({
+        sigla, nome: b.nome || NOMES[sigla],
+        escoreFavoravel: favoravelSeAlto[sigla] ? b.media : 5 - b.media,
+      }));
+      pontuados.sort((a, b) => b.escoreFavoravel - a.escoreFavoravel);
+      const fortes = pontuados.slice(0, 2);
+      const oportunidades = pontuados.slice(-2).reverse();
+
+      const container = document.getElementById("colunas-fortes-oportunidades");
+      container.innerHTML = `
+        <div class="maf-coluna-forte">
+          <h5>Pontos fortes</h5>
+          <ul style="margin:0 0 0 16px; padding:0; font-size:0.85rem;">
+            ${fortes.map((f) => `<li>${f.nome}</li>`).join("")}
+          </ul>
+        </div>
+        <div class="maf-coluna-oportunidade">
+          <h5>Oportunidades de evolução</h5>
+          <ul style="margin:0 0 0 16px; padding:0; font-size:0.85rem;">
+            ${oportunidades.map((f) => `<li>${f.nome}</li>`).join("")}
+          </ul>
+        </div>`;
+    }
+
+    function renderizarComoMelhorarEPlano(blocoFraco, nivel) {
+      const dicas = COMO_MELHORAR[blocoFraco];
+      const areaDicas = document.getElementById("area-como-melhorar");
+      if (dicas && dicas.length) {
+        document.getElementById("lista-como-melhorar").innerHTML = dicas.map((d) => `<li>${d}</li>`).join("");
+        areaDicas.hidden = false;
+      } else {
+        areaDicas.hidden = true;
+      }
+
+      const plano = PLANO_ACAO_POR_NIVEL[nivel];
+      const areaPlano = document.getElementById("area-plano-acao");
+      if (plano) {
+        document.getElementById("plano-imediato").textContent = plano.imediato;
+        document.getElementById("plano-curto").textContent = plano.curto;
+        document.getElementById("plano-medio").textContent = plano.medio;
+        areaPlano.hidden = false;
+      } else {
+        areaPlano.hidden = true;
+      }
+    }
+
+    function renderizarInsightsIA(insights) {
+      const area = document.getElementById("area-insights-ia");
+      if (!insights || !insights.resumo_executivo) {
+        area.hidden = true;
+        return;
+      }
+      area.hidden = false;
+      document.getElementById("ia-resumo").textContent = insights.resumo_executivo;
+      document.getElementById("ia-avaliacao").textContent = insights.avaliacao_personalizada || "";
+
+      const NOMES = { VC: "Valor Clínico Percebido", UI: "Usabilidade Invisível", FD: "Fricção Digital", CC: "Carga Cognitiva" };
+      const blocosHtml = ["VC", "UI", "FD", "CC"]
+        .filter((sigla) => insights[sigla])
+        .map((sigla) => {
+          const b = insights[sigla];
+          return `<div style="margin-top:10px; font-size:0.85rem;">
+            <p class="maf-bloco-titulo" style="font-size:0.85rem; margin-bottom:2px;">${NOMES[sigla]}</p>
+            ${b.recomendacao_priorizada ? `<p style="margin:0;"><b>Recomendação priorizada:</b> ${b.recomendacao_priorizada}</p>` : ""}
+          </div>`;
+        })
+        .join("");
+      document.getElementById("ia-blocos").innerHTML = blocosHtml;
+    }
+
+    function renderizarRelatorio(conteudo, geradoEm, insights) {
       const r = conteudo;
       document.getElementById("linha-identificacao").textContent =
         `${r.instituicao_nome} — ${r.setor_nome} — período ${r.periodo}`;
@@ -105,6 +237,10 @@
       document.getElementById("texto-ponto-atencao").textContent = r.ponto_de_atencao_principal.observacao;
       document.getElementById("texto-acao").textContent = r.acao_recomendada;
 
+      renderizarFortesOportunidades(r.blocos);
+      renderizarComoMelhorarEPlano(r.ponto_de_atencao_principal.bloco, nivel);
+      renderizarInsightsIA(insights);
+
       document.getElementById("card-alerta").hidden = !r.alerta.deve_alertar;
 
       const avisoAmostra = document.getElementById("card-amostra-aviso");
@@ -131,7 +267,7 @@
       const url =
         `${window.MAF_CONFIG.SUPABASE_URL}/rest/v1/relatorios_diagnostico` +
         `?setor_id=eq.${encodeURIComponent(setor_id)}&periodo=eq.${encodeURIComponent(periodo)}` +
-        `&select=conteudo,gerado_em`;
+        `&select=conteudo,gerado_em,insights`;
 
       try {
         const resp = await fetch(url, {
@@ -151,7 +287,7 @@
           return;
         }
 
-        renderizarRelatorio(linhas[0].conteudo, linhas[0].gerado_em);
+        renderizarRelatorio(linhas[0].conteudo, linhas[0].gerado_em, linhas[0].insights);
       } catch (erro) {
         document.getElementById("aviso-erro").textContent =
           "Não foi possível carregar o relatório agora. Tente novamente em instantes.";

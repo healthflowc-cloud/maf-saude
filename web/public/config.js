@@ -26,13 +26,11 @@ window.MAF_CONFIG = {
   // SW-04 (Gemini) já está ativo no n8n -- URL preenchida.
   GEMINI_INSIGHTS_WEBHOOK_URL: "https://n8n.tangramhub.com.br/webhook/maf-gerar-insights",
 
-  // SW-05 (export PDF/e-mail) AINDA NÃO está ativo (falta você selecionar a
-  // credencial "Gmail MAF" no node de e-mail + eu implantar a Edge Function
-  // do PDF -- ver documentacao/md/SW05_SUPABASE_FUNCTION_SETUP.md). Deixado
-  // como null de propósito: enquanto for null, o botão correspondente no
-  // dashboard fica desabilitado com um aviso, em vez de chamar um webhook
-  // que ainda vai retornar erro. Troque para a linha comentada abaixo assim
-  // que o SW-05 estiver ativo (eu aviso quando estiver).
-  EXPORT_RELATORIO_WEBHOOK_URL: null,
-  // EXPORT_RELATORIO_WEBHOOK_URL: "https://n8n.tangramhub.com.br/webhook/maf-exportar-relatorio",
+  // SW-05 (export PDF/e-mail) já está ativo e testado ponta a ponta em
+  // produção (02/09/2026, ver documentacao/md/SW05_SUPABASE_FUNCTION_SETUP.md)
+  // -- os botões "Exportar PDF"/"Enviar e-mail" do dashboard chamam esta URL
+  // de verdade. Se precisar desativar temporariamente (ex.: SW-05 fora do ar),
+  // troque de volta para null -- o dashboard volta a mostrar os botões
+  // desabilitados com um aviso, em vez de chamar um webhook fora do ar.
+  EXPORT_RELATORIO_WEBHOOK_URL: "https://n8n.tangramhub.com.br/webhook/maf-exportar-relatorio",
 };

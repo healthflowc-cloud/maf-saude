@@ -30,13 +30,24 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage, type RGB } from "npm:pdf-lib@1.17.1";
 
-const AZUL = rgb(0.10, 0.28, 0.55);
-const CINZA_ESCURO = rgb(0.20, 0.22, 0.25);
-const CINZA_MEDIO = rgb(0.45, 0.48, 0.52);
-const CINZA_CLARO = rgb(0.90, 0.91, 0.93);
-const VERDE = rgb(0.16, 0.55, 0.35);
-const AMARELO = rgb(0.80, 0.60, 0.10);
-const VERMELHO = rgb(0.75, 0.25, 0.20);
+// Paleta "Clinico Claro" -- mesma paleta de web/public/style.css (fundo
+// branco, azul-petroleo + verde-agua como destaque), escolhida para o
+// usuario final da area da saude em vez do estilo escuro/tech comum em
+// dashboards de TI. Mantida sincronizada manualmente com as variaveis CSS
+// (--maf-petroleo, --maf-agua, etc.) -- mesmo debito tecnico ja documentado
+// de duas implementacoes do layout (ver README desta function).
+const PETROLEO = rgb(0.055, 0.290, 0.361); // #0e4a5c
+const PETROLEO_ESCURO = rgb(0.035, 0.220, 0.275); // #093846
+const AGUA = rgb(0.078, 0.659, 0.612); // #14a89c
+const AGUA_ESCURA = rgb(0.047, 0.518, 0.471); // #0c8478
+const CINZA_ESCURO = rgb(0.122, 0.176, 0.200); // #1f2d33 (texto)
+const CINZA_MEDIO = rgb(0.333, 0.408, 0.431); // #55686e (texto secundario)
+const CINZA_CLARO = rgb(0.867, 0.898, 0.906); // #dde5e7 (bordas/fundos neutros)
+const VERDE = rgb(0.184, 0.561, 0.357); // #2f8f5b (status: nivel bom)
+const AMARELO = rgb(0.659, 0.525, 0.039); // #a8860a (status: alerta)
+const VERMELHO = rgb(0.702, 0.255, 0.227); // #b3413a (status: critico)
+// Aliases para minimizar o diff do restante do arquivo.
+const AZUL = PETROLEO;
 
 const PAGE_W = 595.28; // A4 em pontos
 const PAGE_H = 841.89;
@@ -74,7 +85,7 @@ function escreverParagrafo(
   cor: RGB = CINZA_ESCURO,
   entreLinhas = 1.35,
 ): number {
-  const linhas = quebrarLinhas(texto, font, tamanho, larguraMax);
+  const linhas = quebrarLinhas(sanitizarTextoPdf(texto), font, tamanho, larguraMax);
   let cursor = y;
   for (const linha of linhas) {
     page.drawText(linha, { x, y: cursor, size: tamanho, font, color: cor });
@@ -87,6 +98,56 @@ function corPorNivel(nivel: number): RGB {
   if (nivel <= 2) return VERMELHO;
   if (nivel === 3) return AMARELO;
   return VERDE;
+}
+
+// As fontes padrao do pdf-lib (Helvetica, sem embutir arquivo de fonte
+// proprio) so suportam WinAnsi (Windows-1252, 1 byte por caractere) --
+// QUALQUER caractere fora disso (emoji, "⚠", certos tracos/aspas
+// tipograficas, setas, marcadores "•") faz `drawText` lancar excecao e
+// derruba a geracao inteira do PDF (foi exatamente o que aconteceu no
+// primeiro teste ponta a ponta contra o relatorio-piloto, com o aviso de
+// amostra inconclusiva). Risco recorrente, nao pontual: a partir do SW-04,
+// parte do texto desenhado aqui vem de uma IA (Gemini) e pode trazer esses
+// caracteres a qualquer momento, sem aviso previo e sem controle do time.
+// Por isso: sanitiza TODO texto antes de desenhar, em vez de corrigir só o
+// caractere que quebrou hoje.
+const MAPA_SUBSTITUICOES_PDF: Record<string, string> = {
+  "⚠️": "!", "⚠": "!",
+  "✅": "OK", "✔️": "OK", "✔": "OK", "✓": "OK",
+  "❌": "x", "✘": "x", "✗": "x",
+  "→": "->", "⇒": "=>", "←": "<-", "↔": "<->",
+  "•": "-", "●": "-", "◦": "-", "▪": "-",
+  "…": "...",
+};
+
+// WinAnsiEncoding (base do PDF para Windows-1252) NAO e simplesmente
+// "codepoint <= 255" -- os bytes 0x80-0x9F mapeiam para um conjunto
+// especifico de codepoints ALTOS (travessao, aspas tipograficas, etc.).
+// Sem essa lista, um filtro ingenuo por codepoint removeria o travessao
+// usado em varios textos estaticos deste arquivo (bug encontrado e
+// corrigido antes do primeiro deploy desta versao).
+const WINANSI_CODEPOINTS_EXTRA = new Set([
+  0x20ac, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030,
+  0x0160, 0x2039, 0x0152, 0x017d, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022,
+  0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x017e, 0x0178,
+]);
+
+function winAnsiSeguro(codepoint: number): boolean {
+  if (codepoint >= 0x20 && codepoint <= 0x7e) return true; // ASCII imprimivel
+  if (codepoint >= 0xa0 && codepoint <= 0xff) return true; // Latin-1 (acentos PT-BR)
+  return WINANSI_CODEPOINTS_EXTRA.has(codepoint);
+}
+
+function sanitizarTextoPdf(texto: unknown): string {
+  let resultado = String(texto ?? "");
+  for (const [de, para] of Object.entries(MAPA_SUBSTITUICOES_PDF)) {
+    if (resultado.includes(de)) resultado = resultado.split(de).join(para);
+  }
+  // Qualquer coisa que sobrar fora do WinAnsi e removida -- preferimos
+  // perder um caractere decorativo isolado a derrubar o PDF inteiro.
+  return Array.from(resultado)
+    .filter((ch) => winAnsiSeguro(ch.codePointAt(0) ?? 0))
+    .join("");
 }
 
 // Barra horizontal 0-5 com rotulo e valor. `corRuimSeAlto` inverte a leitura
@@ -108,7 +169,7 @@ function desenharBarraBloco(
   const max = 5;
   const proporcao = Math.max(0, Math.min(1, valor / max));
 
-  page.drawText(`${sigla} — ${nomeBloco}`, { x, y: y + 4, size: 10, font: fontBold, color: CINZA_ESCURO });
+  page.drawText(sanitizarTextoPdf(`${sigla} — ${nomeBloco}`), { x, y: y + 4, size: 10, font: fontBold, color: CINZA_ESCURO });
   page.drawText(valor.toFixed(2), {
     x: x + largura - font.widthOfTextAtSize(valor.toFixed(2), 10),
     y: y + 4,
@@ -127,6 +188,59 @@ function desenharBarraBloco(
 
   page.drawRectangle({ x, y: yBarra, width: largura * proporcao, height: alturaBarra, color: corPreenchimento });
 }
+
+// --- conteudo informativo (valor agregado alem dos numeros crus) -----------
+// Textos estaticos, independentes do relatorio especifico -- nao substituem
+// a "acao_recomendada" (essa vem calculada por report_logic.js/SW-03 a
+// partir do nivel_maturidade real). Duplicado propositalmente em
+// relatorio.html (mesmo debito tecnico ja documentado de duas
+// implementacoes do layout do relatorio).
+const COMO_MELHORAR: Record<string, string[]> = {
+  VC: [
+    "Priorize a integracao de dados clinicos ja existentes (historico, exames, alergias) nas telas mais usadas.",
+    "Registre exemplos concretos de decisoes que o sistema ajudou ou atrapalhou -- e a evidencia que prioriza melhorias com a equipe de TI.",
+  ],
+  UI: [
+    "Compare o fluxo real de trabalho com o fluxo do sistema -- cada divergencia e candidata a redesenho de tela.",
+    "Padronize a ordem dos campos criticos (sinais vitais, alergias) para reduzir a carga de decisao.",
+  ],
+  FD: [
+    "Identifique os campos mais redigitados entre telas e proponha integracao ou preenchimento automatico.",
+    "Registre travamentos/lentidao com horario -- e o dado que justifica investimento em infraestrutura.",
+  ],
+  CC: [
+    "Reduza alertas nao-criticos -- fadiga de alerta e um risco de seguranca do paciente bem documentado na literatura.",
+    "Simplifique a hierarquia visual das telas mais usadas -- menos cores/botoes concorrendo por atencao.",
+  ],
+};
+
+const PLANO_ACAO_POR_NIVEL: Record<number, { imediato: string; curto_prazo: string; medio_prazo: string }> = {
+  1: {
+    imediato: "Reengenharia total ou troca de software.",
+    curto_prazo: "Mapear os 3 pontos de maior friccao e formar um mutirao Lean de resposta rapida.",
+    medio_prazo: "Reavaliar em 60 dias com nova rodada do questionario para medir o efeito das mudancas.",
+  },
+  2: {
+    imediato: "Mutirao Lean: reduzir cliques/pop-ups (SLA 72h).",
+    curto_prazo: "Padronizar os fluxos mais usados e treinar multiplicadores por turno.",
+    medio_prazo: "Reaplicar o diagnostico em 90 dias e comparar o IAO por bloco.",
+  },
+  3: {
+    imediato: "Integracoes via API, suporte a decisao clinica.",
+    curto_prazo: "Priorizar 1-2 integracoes de maior impacto apontadas pelo bloco mais fraco.",
+    medio_prazo: "Formalizar um comite de governanca de TI clinica com revisao trimestral.",
+  },
+  4: {
+    imediato: "Sustentacao e escuta continua.",
+    curto_prazo: "Criar canal permanente de feedback dos usuarios finais.",
+    medio_prazo: "Monitorar a tendencia do IAO por setor a cada ciclo, sem reduzir a cadencia.",
+  },
+  5: {
+    imediato: "Certificacao + Employer Branding.",
+    curto_prazo: "Documentar as praticas que levaram ao Selo Padrao Ouro MAF como referencia interna.",
+    medio_prazo: "Usar o setor como padrao de benchmarking interno para os demais.",
+  },
+};
 
 // --- corpo principal -------------------------------------------------------
 
@@ -181,7 +295,7 @@ Deno.serve(async (req: Request) => {
   try {
     const pdf = await PDFDocument.create();
     pdf.setTitle(`Relatorio MAF-Saude - ${conteudo.setor_nome ?? ""} - ${conteudo.periodo ?? ""}`);
-    pdf.setProducer("MAF-Saude (Weknow Healthtech)");
+    pdf.setProducer("MAF-Saude");
 
     const fontRegular = await pdf.embedFont(StandardFonts.Helvetica);
     const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -201,7 +315,7 @@ Deno.serve(async (req: Request) => {
     page.drawText("MAF-Saude — Relatório de Maturidade e Fricção", { x: MARGEM, y, size: 16, font: fontBold, color: AZUL });
     y -= 22;
     page.drawText(
-      `${conteudo.instituicao_nome ?? "—"}  ·  ${conteudo.setor_nome ?? "—"}  ·  Período: ${conteudo.periodo ?? "—"}`,
+      sanitizarTextoPdf(`${conteudo.instituicao_nome ?? "—"}  ·  ${conteudo.setor_nome ?? "—"}  ·  Período: ${conteudo.periodo ?? "—"}`),
       { x: MARGEM, y, size: 10.5, font: fontRegular, color: CINZA_MEDIO },
     );
     y -= 10;
@@ -223,10 +337,10 @@ Deno.serve(async (req: Request) => {
     const iaoTexto = typeof resumo.iao === "number" ? resumo.iao.toFixed(2) : String(resumo.iao ?? "—");
     page.drawText(`IAO: ${iaoTexto}`, { x: MARGEM, y, size: 22, font: fontBold, color: corPorNivel(nivel) });
     y -= 20;
-    page.drawText(`Nível ${nivel} — ${resumo.status ?? ""}`, { x: MARGEM, y, size: 12, font: fontBold, color: CINZA_ESCURO });
+    page.drawText(sanitizarTextoPdf(`Nível ${nivel} — ${resumo.status ?? ""}`), { x: MARGEM, y, size: 12, font: fontBold, color: CINZA_ESCURO });
     y -= 16;
     if (resumo.rotulo_criticidade_setor) {
-      page.drawText(`Criticidade do setor: ${resumo.rotulo_criticidade_setor}`, {
+      page.drawText(sanitizarTextoPdf(`Criticidade do setor: ${resumo.rotulo_criticidade_setor}`), {
         x: MARGEM,
         y,
         size: 9.5,
@@ -281,6 +395,44 @@ Deno.serve(async (req: Request) => {
       y -= 14;
     }
 
+    // Como melhorar -- dicas praticas do bloco mais fraco (valor agregado,
+    // independente do texto calculado, ver COMO_MELHORAR acima).
+    const blocoFraco = conteudo.ponto_de_atencao_principal?.bloco;
+    const dicas = blocoFraco ? COMO_MELHORAR[blocoFraco] : null;
+    if (dicas && dicas.length) {
+      novaPaginaSeNecessario(60);
+      page.drawText("Como melhorar", { x: MARGEM, y, size: 11.5, font: fontBold, color: AGUA_ESCURA });
+      y -= 16;
+      for (const dica of dicas) {
+        novaPaginaSeNecessario(24);
+        y = escreverParagrafo(page, `-  ${dica}`, MARGEM, y, fontRegular, 9.5, LARGURA_UTIL);
+      }
+      y -= 8;
+    }
+
+    // Plano de acao (imediato / curto prazo / medio prazo) -- deriva do
+    // mesmo nivel_maturidade ja calculado, sem inventar numero novo.
+    const planoAcao = PLANO_ACAO_POR_NIVEL[nivel];
+    if (planoAcao) {
+      novaPaginaSeNecessario(90);
+      page.drawRectangle({ x: MARGEM, y: y - 4, width: 3, height: 78, color: PETROLEO });
+      page.drawText("Plano de ação sugerido", { x: MARGEM + 12, y, size: 11.5, font: fontBold, color: AZUL });
+      y -= 18;
+      const etapas: Array<[string, string]> = [
+        ["Imediato", planoAcao.imediato],
+        ["Curto prazo (até 90 dias)", planoAcao.curto_prazo],
+        ["Médio prazo", planoAcao.medio_prazo],
+      ];
+      for (const [rotulo, texto] of etapas) {
+        novaPaginaSeNecessario(28);
+        page.drawText(`${rotulo}:`, { x: MARGEM + 12, y, size: 9.5, font: fontBold, color: CINZA_ESCURO });
+        y -= 12;
+        y = escreverParagrafo(page, texto, MARGEM + 12, y, fontRegular, 9.5, LARGURA_UTIL - 12);
+        y -= 6;
+      }
+      y -= 10;
+    }
+
     // Insights de IA (Gemini), se ja tiverem sido gerados pelo SW-04
     if (insights && insights.resumo_executivo) {
       novaPaginaSeNecessario(80);
@@ -316,7 +468,7 @@ Deno.serve(async (req: Request) => {
     // Rodape em todas as paginas
     const paginas = pdf.getPages();
     paginas.forEach((p, i) => {
-      p.drawText(`Weknow Healthtech · Modelo MAF-Saúde · Gerado em ${new Date().toLocaleDateString("pt-BR")}`, {
+      p.drawText(`Modelo MAF-Saúde · Gerado em ${new Date().toLocaleDateString("pt-BR")}`, {
         x: MARGEM,
         y: 28,
         size: 7.5,

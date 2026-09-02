@@ -17,6 +17,95 @@
       Link inválido ou incompleto. Peça à sua instituição o link correto do questionário (ele contém o setor e a instituição já identificados).
     </div>
 
+    <!-- Passo 0: metodologia + Termo de Consentimento — obrigatório antes do questionário -->
+    <div id="area-consentimento" hidden>
+      <div class="maf-info-box">
+        <h4>Sobre esta pesquisa</h4>
+        <p>
+          Este questionário mede o <b>Índice de Aderência Orgânica (IAO)</b> do sistema informatizado usado no seu
+          setor, a partir de uma metodologia que combina três referências consolidadas: <b>UTAUT</b> (Unified Theory
+          of Acceptance and Use of Technology) e <b>TAM</b> (Technology Acceptance Model) — que explicam por que
+          profissionais aceitam ou resistem a uma tecnologia — e <b>Lean Healthcare</b>, que identifica desperdícios
+          e fricções no fluxo de trabalho clínico.
+        </p>
+        <p>
+          As 16 perguntas estão organizadas em 4 blocos: <b>Valor Clínico Percebido</b> (o sistema ajuda no
+          cuidado?), <b>Usabilidade Invisível</b> (é fácil de usar sem atrapalhar o raciocínio clínico?),
+          <b>Fricção Digital</b> (quanto atrito o sistema gera?) e <b>Carga Cognitiva</b> (quanto esgotamento mental
+          ele causa?). O resultado gera um diagnóstico por setor, nunca uma avaliação individual.
+        </p>
+      </div>
+
+      <div class="maf-card">
+        <h3 class="maf-bloco-titulo" style="margin-bottom:12px;">Termo de Consentimento Livre e Esclarecido (TCLE)</h3>
+        <div class="maf-consentimento-scroll">
+          <p><b>O TCLE respeita a Resolução nº 466/2012.</b></p>
+          <p>
+            O(a) Sr.(a) está sendo convidado(a) a participar da pesquisa intitulada “USABILIDADE E ACEITAÇÃO DE
+            SISTEMAS INFORMATIZADOS DE GESTÃO HOSPITALAR POR PROFISSIONAIS DE SAÚDE”, cujo objetivo é compreender
+            como os profissionais de saúde percebem a usabilidade e o nível de aceitação dos sistemas informatizados
+            utilizados na gestão hospitalar. A pesquisa busca identificar barreiras funcionais e organizacionais
+            associadas ao uso dessas tecnologias, bem como analisar a relação entre fatores comportamentais e a
+            eficiência operacional da instituição, visando propor melhorias nos processos de trabalho.
+          </p>
+          <p>
+            A pesquisa é vinculada ao curso de Graduação em Engenharia de Produção e Sistemas do Centro de Ciências
+            Tecnológicas (CCT) da Universidade do Estado de Santa Catarina (UDESC). A sua participação consistirá no
+            preenchimento de um questionário online estruturado, contendo questões relacionadas ao seu perfil
+            profissional, ao uso de sistemas informatizados, aos treinamentos recebidos e à sua percepção sobre a
+            tecnologia utilizada em sua rotina de trabalho.
+          </p>
+          <p>
+            O acesso ao questionário será disponibilizado somente após a concordância do(a) participante com os
+            termos deste Termo de Consentimento Livre e Esclarecido. Destaca-se que, embora não haja benefícios
+            diretos e imediatos, a colaboração nesta pesquisa poderá contribuir para a melhoria das condições de
+            trabalho dos profissionais da área da saúde, bem como para o aprimoramento dos serviços de saúde
+            oferecidos aos usuários e à sociedade em geral.
+          </p>
+          <p>
+            A sua participação não é obrigatória, e, a qualquer momento, você poderá desistir de participar e
+            retirar seu consentimento. Sua recusa não trará nenhum prejuízo em sua relação com o pesquisador, como
+            também na instituição em que trabalha. Você receberá o contato/e-mail dos pesquisadores responsáveis
+            pela pesquisa, podendo tirar dúvidas sobre o projeto e sua participação a qualquer momento.
+          </p>
+          <p>
+            As respostas serão tratadas de forma anônima e confidencial. Os possíveis riscos e desconfortos
+            decorrentes da participação nesta pesquisa limitam-se a eventual constrangimento ao responder ao
+            questionário, bem como ao receio de exposição das informações fornecidas. Ressalta-se que nomes,
+            endereços ou quaisquer outros dados que permitam a identificação dos participantes não serão publicados
+            em hipótese alguma. Os dados coletados serão utilizados exclusivamente para os fins desta pesquisa e os
+            resultados poderão ser divulgados em eventos acadêmicos e/ou periódicos científicos, sempre com garantia
+            do anonimato.
+          </p>
+          <p>
+            As informações coletadas permanecerão sob a guarda dos pesquisadores responsáveis, que se comprometem a
+            manter o mais rigoroso sigilo sobre os dados obtidos. Todavia, por se tratar de pesquisa envolvendo seres
+            humanos, existe a possibilidade remota de quebra de sigilo, ainda que de forma involuntária e não
+            intencional, hipótese que será apurada e tratada conforme a legislação vigente. Caso concorde com os
+            esclarecimentos apresentados, solicitamos que manifeste seu aceite aos termos desta pesquisa.
+          </p>
+          <p>
+            Este documento está em conformidade com a Resolução nº 466/2012, que estabelece as diretrizes éticas e
+            de proteção aos participantes de pesquisas envolvendo seres humanos no Brasil. Agradecemos a sua
+            colaboração.
+          </p>
+          <p>
+            <b>Pesquisador principal:</b> Lucas Lemes de Oliveira<br />
+            <b>E-mail:</b> lucas.oliveira0@edu.udesc.br
+          </p>
+        </div>
+
+        <label class="maf-checkbox-linha">
+          <input type="checkbox" id="check-consentimento" />
+          <span>Li e compreendi o Termo de Consentimento Livre e Esclarecido acima e concordo em participar voluntariamente desta pesquisa.</span>
+        </label>
+
+        <button type="button" class="maf-btn" id="btn-continuar-consentimento" style="margin-top:16px;" disabled>
+          Continuar para o questionário
+        </button>
+      </div>
+    </div>
+
     <div id="area-formulario" hidden>
       <div class="maf-card" style="background:var(--maf-azul-claro); border-color:#aed6f1;">
         <p style="margin:0; font-size:0.9rem;">
@@ -38,7 +127,7 @@
       ✅ Respostas registradas. Obrigado por contribuir com o diagnóstico do seu setor.
     </div>
 
-    <p class="maf-footer-nota">Modelo MAF-Saúde — UTAUT + TAM + Lean Healthcare · Weknow Healthtech</p>
+    <p class="maf-footer-nota">Modelo MAF-Saúde — Metodologia UTAUT + TAM + Lean Healthcare</p>
   </div>
 
   <script src="config.js"></script>
@@ -192,6 +281,8 @@
       return Object.values(respostas).every((arr) => arr.every((v) => v !== null));
     }
 
+    let consentimentoAceitoEm = null;
+
     async function inicializar() {
       const { token, setor } = lerParametros();
       if (!token || !setor) {
@@ -199,7 +290,19 @@
         return;
       }
       renderizarBlocos();
-      document.getElementById("area-formulario").hidden = false;
+      document.getElementById("area-consentimento").hidden = false;
+
+      const checkConsentimento = document.getElementById("check-consentimento");
+      const btnContinuar = document.getElementById("btn-continuar-consentimento");
+      checkConsentimento.addEventListener("change", () => {
+        btnContinuar.disabled = !checkConsentimento.checked;
+      });
+      btnContinuar.addEventListener("click", () => {
+        consentimentoAceitoEm = new Date().toISOString();
+        document.getElementById("area-consentimento").hidden = true;
+        document.getElementById("area-formulario").hidden = false;
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
 
       document.getElementById("form-maf").addEventListener("submit", async (ev) => {
         ev.preventDefault();
@@ -226,6 +329,12 @@
             periodo: primeiroDiaDoMesAtual(),
             respondente_hash,
             respostas,
+            // Registrado para controle/auditoria (Resolução 466/2012). O
+            // backend atual (SW-01) ainda não persiste estes dois campos —
+            // ver documentacao/md para o item pendente de estender
+            // respostas_validadas com uma coluna de consentimento.
+            consentimento_aceito: true,
+            consentimento_aceito_em: consentimentoAceitoEm,
           };
 
           const resp = await fetch(`${window.MAF_CONFIG.N8N_BASE_URL}/webhook/maf-intake`, {

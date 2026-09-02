@@ -22,7 +22,7 @@ temporária do n8n para criar o subworkflow via API (mesmo padrão do SW-00..03)
 const relatorio = $input.first().json;
 const conteudo = relatorio.conteudo;
 
-const systemPrompt = 'Você é o motor de insights da metodologia MAF-Saúde (Modelo de Aderência e Fricção em Saúde) da Weknow Healthtech. '
+const systemPrompt = 'Você é o motor de insights da metodologia MAF-Saúde (Modelo de Aderência e Fricção em Saúde). '
   + 'O diagnóstico já foi CALCULADO matematicamente (não recalcule, não invente números) a partir de 4 blocos: '
   + 'VC (Valor Clínico Percebido), UI (Usabilidade Invisível), FD (Fricção Digital, nota alta é RUIM), CC (Carga Cognitiva, nota alta é RUIM). '
   + 'Gere: (1) um resumo executivo curto (MÁXIMO 60 palavras); (2) uma avaliação personalizada consultiva (MÁXIMO 220 palavras) conectando os 4 blocos, '
