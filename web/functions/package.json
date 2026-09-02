@@ -1,0 +1,14 @@
+{
+  "name": "maf-saude-functions",
+  "description": "Cloud Functions do MAF-Saude -- hoje so a geracao de PDF do SW-05 (substitui o sidecar Browserless que exigiria VPS, que o usuario nao tem acesso).",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-functions": "^6.1.0",
+    "@sparticuz/chromium": "^131.0.1",
+    "puppeteer-core": "^23.10.4"
+  },
+  "private": true
+}

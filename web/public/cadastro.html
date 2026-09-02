@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cadastro — MAF-Saúde</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="maf-header">
+    <h1>Diagnóstico MAF-Saúde</h1>
+    <p>Cadastro da instituição</p>
+  </div>
+
+  <div class="maf-container" style="max-width: 420px;">
+    <div class="maf-card">
+      <div id="aviso" class="maf-aviso erro" hidden></div>
+      <div id="aviso-confirmacao" class="maf-aviso info" hidden>
+        Conta criada. Verifique seu e-mail para confirmar o cadastro e depois
+        <a class="maf-link" href="login.html">faça login</a> — na primeira vez você
+        completa os dados da sua instituição.
+      </div>
+
+      <form id="form-cadastro">
+        <div class="maf-form-group">
+          <label for="email">E-mail</label>
+          <input class="maf-input" type="email" id="email" required autocomplete="email" />
+        </div>
+        <div class="maf-form-group">
+          <label for="senha">Senha (mínimo 8 caracteres)</label>
+          <input class="maf-input" type="password" id="senha" required minlength="8" autocomplete="new-password" />
+        </div>
+        <div class="maf-form-group">
+          <label for="senha2">Confirmar senha</label>
+          <input class="maf-input" type="password" id="senha2" required minlength="8" autocomplete="new-password" />
+        </div>
+        <button type="submit" class="maf-btn" id="btn-cadastrar">Criar conta</button>
+      </form>
+
+      <p style="text-align:center; margin-top:16px; font-size:0.9rem;">
+        Já tem cadastro? <a class="maf-link" href="login.html">Entrar</a>
+      </p>
+    </div>
+
+    <p class="maf-footer-nota">Modelo MAF-Saúde — UTAUT + TAM + Lean Healthcare · Weknow Healthtech</p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <script>
+    const supa = supabase.createClient(window.MAF_CONFIG.SUPABASE_URL, window.MAF_CONFIG.SUPABASE_ANON_KEY);
+
+    document.getElementById("form-cadastro").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const aviso = document.getElementById("aviso");
+      aviso.hidden = true;
+
+      const email = document.getElementById("email").value.trim();
+      const senha = document.getElementById("senha").value;
+      const senha2 = document.getElementById("senha2").value;
+
+      if (senha !== senha2) {
+        aviso.textContent = "As senhas não coincidem.";
+        aviso.hidden = false;
+        return;
+      }
+
+      const btn = document.getElementById("btn-cadastrar");
+      btn.disabled = true;
+      btn.textContent = "Criando conta...";
+
+      const { data, error } = await supa.auth.signUp({ email, password: senha });
+
+      if (error) {
+        aviso.textContent = "Não foi possível criar a conta (" + error.message + ").";
+        aviso.hidden = false;
+        btn.disabled = false;
+        btn.textContent = "Criar conta";
+        return;
+      }
+
+      if (data.session) {
+        // Confirmação de e-mail está desligada neste projeto Supabase — já
+        // temos sessão ativa, pode ir direto pro dashboard completar o
+        // cadastro da instituição.
+        window.location.href = "dashboard.html";
+        return;
+      }
+
+      // Confirmação de e-mail ligada: sem sessão ainda até o clique no link.
+      document.getElementById("form-cadastro").hidden = true;
+      document.getElementById("aviso-confirmacao").hidden = false;
+    });
+  </script>
+</body>
+</html>

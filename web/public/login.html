@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Login — MAF-Saúde</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="maf-header">
+    <h1>Diagnóstico MAF-Saúde</h1>
+    <p>Acesso da instituição</p>
+  </div>
+
+  <div class="maf-container" style="max-width: 420px;">
+    <div class="maf-card">
+      <div id="aviso" class="maf-aviso erro" hidden></div>
+
+      <form id="form-login">
+        <div class="maf-form-group">
+          <label for="email">E-mail</label>
+          <input class="maf-input" type="email" id="email" required autocomplete="email" />
+        </div>
+        <div class="maf-form-group">
+          <label for="senha">Senha</label>
+          <input class="maf-input" type="password" id="senha" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="maf-btn" id="btn-entrar">Entrar</button>
+      </form>
+
+      <p style="text-align:center; margin-top:16px; font-size:0.9rem;">
+        Ainda não tem cadastro? <a class="maf-link" href="cadastro.html">Cadastre sua instituição</a>
+      </p>
+    </div>
+
+    <p class="maf-footer-nota">Modelo MAF-Saúde — UTAUT + TAM + Lean Healthcare · Weknow Healthtech</p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <script>
+    const supa = supabase.createClient(window.MAF_CONFIG.SUPABASE_URL, window.MAF_CONFIG.SUPABASE_ANON_KEY);
+
+    // Se já tem sessão válida, pula direto pro dashboard.
+    (async () => {
+      const { data } = await supa.auth.getSession();
+      if (data.session) window.location.href = "dashboard.html";
+    })();
+
+    document.getElementById("form-login").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const aviso = document.getElementById("aviso");
+      aviso.hidden = true;
+      const btn = document.getElementById("btn-entrar");
+      btn.disabled = true;
+      btn.textContent = "Entrando...";
+
+      const email = document.getElementById("email").value.trim();
+      const senha = document.getElementById("senha").value;
+
+      const { error } = await supa.auth.signInWithPassword({ email, password: senha });
+
+      if (error) {
+        aviso.textContent =
+          error.message === "Invalid login credentials"
+            ? "E-mail ou senha incorretos."
+            : "Não foi possível entrar (" + error.message + "). Tente novamente.";
+        aviso.hidden = false;
+        btn.disabled = false;
+        btn.textContent = "Entrar";
+        return;
+      }
+
+      window.location.href = "dashboard.html";
+    });
+  </script>
+</body>
+</html>

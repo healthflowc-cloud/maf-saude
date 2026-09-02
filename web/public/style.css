@@ -123,3 +123,44 @@ table.maf-blocos td, table.maf-blocos th {
 .maf-barra-fundo { background: #eaecee; border-radius: 4px; height: 10px; overflow: hidden; width: 100%; }
 .maf-barra-preenchida { background: var(--maf-azulneutro); height: 100%; }
 .maf-footer-nota { font-size: 0.75rem; color: #839192; margin-top: 24px; text-align: center; }
+
+/* ---- Autenticação (login/cadastro) e dashboard — Fase 3 ---- */
+.maf-form-group { margin-bottom: 14px; }
+.maf-form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: var(--maf-texto); }
+.maf-input, select.maf-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--maf-borda);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: #fff;
+  color: var(--maf-texto);
+}
+.maf-input:focus { outline: none; border-color: var(--maf-azul); }
+.maf-link { color: var(--maf-azul); text-decoration: none; font-weight: 600; }
+.maf-link:hover { text-decoration: underline; }
+.maf-topbar {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--maf-azul); color: #fff; padding: 16px 24px;
+}
+.maf-topbar h1 { margin: 0; font-size: 1.1rem; }
+.maf-topbar button, .maf-btn-secundario {
+  background: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.5);
+  border-radius: 6px; padding: 8px 14px; cursor: pointer; font-size: 0.85rem;
+}
+.maf-btn-linha {
+  background: var(--maf-azulneutro); color: #fff; border: none; border-radius: 6px;
+  padding: 8px 14px; font-size: 0.82rem; font-weight: 600; cursor: pointer; margin: 2px 4px 2px 0;
+}
+.maf-btn-linha:disabled { background: #aab7b8; cursor: not-allowed; }
+.maf-setor-card { border: 1px solid var(--maf-borda); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
+.maf-setor-card h3 { margin: 0 0 4px; font-size: 1rem; color: var(--maf-azul); }
+.maf-link-box {
+  display: flex; gap: 6px; margin-top: 8px; align-items: center; flex-wrap: wrap;
+}
+.maf-link-box input { flex: 1; min-width: 220px; font-size: 0.78rem; background: var(--maf-fundo); }
+.maf-badge-criticidade {
+  display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 2px 8px;
+  border-radius: 999px; background: var(--maf-azul-claro); color: var(--maf-azul); margin-left: 6px;
+}

@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dashboard — MAF-Saúde</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="maf-topbar">
+    <h1>MAF-Saúde — Painel da instituição</h1>
+    <button id="btn-sair">Sair</button>
+  </div>
+
+  <div class="maf-container">
+    <div id="aviso-global" class="maf-aviso erro" hidden></div>
+
+    <!-- Passo 1: completar cadastro da instituição (só aparece na primeira vez) -->
+    <div id="area-completar-cadastro" class="maf-card" hidden>
+      <h3 style="margin-top:0; color:var(--maf-azul);">Complete o cadastro da sua instituição</h3>
+      <form id="form-instituicao">
+        <div class="maf-form-group">
+          <label for="inst-nome">Nome da instituição</label>
+          <input class="maf-input" id="inst-nome" required />
+        </div>
+        <div class="maf-form-group">
+          <label for="inst-porte">Porte</label>
+          <select class="maf-input" id="inst-porte" required>
+            <option value="pequeno">Pequeno</option>
+            <option value="medio">Médio</option>
+            <option value="grande">Grande</option>
+          </select>
+        </div>
+        <div class="maf-form-group">
+          <label for="inst-email">E-mail de contato (recebe relatórios)</label>
+          <input class="maf-input" type="email" id="inst-email" required />
+        </div>
+        <button type="submit" class="maf-btn" id="btn-salvar-instituicao">Salvar e continuar</button>
+      </form>
+    </div>
+
+    <!-- Passo 2: painel normal -->
+    <div id="area-dashboard" hidden>
+      <div class="maf-card">
+        <h3 id="inst-nome-titulo" style="margin:0 0 4px; color:var(--maf-azul);"></h3>
+        <p style="margin:0; font-size:0.85rem; color:#566573;" id="inst-subtitulo"></p>
+      </div>
+
+      <div class="maf-card">
+        <h3 style="margin-top:0;">Setores</h3>
+        <div id="lista-setores"></div>
+
+        <details style="margin-top:12px;">
+          <summary style="cursor:pointer; font-weight:600; color:var(--maf-azul);">+ Adicionar setor</summary>
+          <form id="form-setor" style="margin-top:12px;">
+            <div class="maf-form-group">
+              <label for="setor-nome">Nome do setor</label>
+              <input class="maf-input" id="setor-nome" required />
+            </div>
+            <div class="maf-form-group">
+              <label for="setor-criticidade">Nível de criticidade</label>
+              <select class="maf-input" id="setor-criticidade" required>
+                <option value="1">1 — Administrativo</option>
+                <option value="2">2 — Assistencial eletivo</option>
+                <option value="3">3 — Urgência/Intensiva (alta criticidade)</option>
+              </select>
+            </div>
+            <button type="submit" class="maf-btn" id="btn-add-setor">Criar setor</button>
+          </form>
+        </details>
+      </div>
+    </div>
+
+    <p class="maf-footer-nota">Modelo MAF-Saúde — UTAUT + TAM + Lean Healthcare · Weknow Healthtech</p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <script>
+    const supa = supabase.createClient(window.MAF_CONFIG.SUPABASE_URL, window.MAF_CONFIG.SUPABASE_ANON_KEY);
+    const CRITICIDADE_LABEL = { 1: "Administrativo", 2: "Assistencial eletivo", 3: "Alta criticidade" };
+    let sessaoAtual = null;
+    let instituicaoAtual = null;
+
+    function mostrarErro(msg) {
+      const el = document.getElementById("aviso-global");
+      el.textContent = msg;
+      el.hidden = false;
+    }
+
+    function linkFormulario(tokenAcesso, setorId) {
+      return `${window.MAF_CONFIG.FORM_BASE_URL}/formulario.html?token=${encodeURIComponent(tokenAcesso)}&setor=${encodeURIComponent(setorId)}`;
+    }
+
+    function linkRelatorio(setorId, periodo) {
+      return `${window.MAF_CONFIG.FORM_BASE_URL}/relatorio.html?setor_id=${encodeURIComponent(setorId)}&periodo=${encodeURIComponent(periodo)}`;
+    }
+
+    async function copiar(texto, botao) {
+      try {
+        await navigator.clipboard.writeText(texto);
+        const original = botao.textContent;
+        botao.textContent = "Copiado!";
+        setTimeout(() => (botao.textContent = original), 1500);
+      } catch {
+        window.prompt("Copie o link:", texto);
+      }
+    }
+
+    async function carregarRelatoriosDoSetor(setorId) {
+      const { data, error } = await supa
+        .from("relatorios_diagnostico")
+        .select("id, periodo, conteudo")
+        .eq("setor_id", setorId)
+        .order("periodo", { ascending: false });
+      if (error) return [];
+      return data || [];
+    }
+
+    function botaoExportDesabilitado(rotulo) {
+      return `<button class="maf-btn-linha" disabled title="Ainda não configurado neste ambiente">${rotulo}</button>`;
+    }
+
+    async function renderSetores(instituicao) {
+      const container = document.getElementById("lista-setores");
+      const { data: setores, error } = await supa
+        .from("setores")
+        .select("id, nome, nivel_criticidade")
+        .eq("instituicao_id", instituicao.id)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        container.innerHTML = "";
+        mostrarErro("Não foi possível carregar os setores (" + error.message + ").");
+        return;
+      }
+
+      if (!setores || setores.length === 0) {
+        container.innerHTML = '<p style="font-size:0.9rem; color:#566573;">Nenhum setor cadastrado ainda — crie o primeiro abaixo.</p>';
+        return;
+      }
+
+      const blocos = await Promise.all(
+        setores.map(async (setor) => {
+          const relatorios = await carregarRelatoriosDoSetor(setor.id);
+          const link = linkFormulario(instituicao.token_acesso, setor.id);
+
+          const linhasRelatorios = relatorios.length
+            ? relatorios
+                .map((r) => {
+                  const iao = r.conteudo?.resumo_executivo?.iao ?? "—";
+                  const nivel = r.conteudo?.resumo_executivo?.nivel_maturidade ?? "—";
+                  const statusBadge = r.conteudo?.amostra?.inconclusivo
+                    ? ' <span class="maf-badge-criticidade">amostra inconclusiva</span>'
+                    : "";
+                  return `<div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-top:1px solid var(--maf-borda); font-size:0.85rem;">
+                    <span><a class="maf-link" href="${linkRelatorio(setor.id, r.periodo)}" target="_blank">${r.periodo}</a> — IAO ${iao} (nível ${nivel})${statusBadge}</span>
+                    <span>
+                      ${botaoExportDesabilitado("Gerar análise")}
+                      ${botaoExportDesabilitado("Exportar PDF")}
+                      ${botaoExportDesabilitado("Enviar e-mail")}
+                    </span>
+                  </div>`;
+                })
+                .join("")
+            : '<p style="font-size:0.82rem; color:#839192; margin:8px 0 0;">Nenhum diagnóstico gerado ainda para este setor.</p>';
+
+          return `<div class="maf-setor-card">
+            <h3>${setor.nome} <span class="maf-badge-criticidade">${CRITICIDADE_LABEL[setor.nivel_criticidade] || setor.nivel_criticidade}</span></h3>
+            <div class="maf-link-box">
+              <input class="maf-input" type="text" readonly value="${link}" />
+              <button class="maf-btn-linha" data-link="${link}">Copiar link do formulário</button>
+            </div>
+            ${linhasRelatorios}
+          </div>`;
+        })
+      );
+
+      container.innerHTML = blocos.join("");
+      container.querySelectorAll("button[data-link]").forEach((btn) => {
+        btn.addEventListener("click", () => copiar(btn.getAttribute("data-link"), btn));
+      });
+    }
+
+    async function carregarInstituicao() {
+      const { data, error } = await supa.from("instituicoes").select("*").limit(1);
+      if (error) {
+        mostrarErro("Não foi possível carregar sua instituição (" + error.message + ").");
+        return;
+      }
+      if (!data || data.length === 0) {
+        document.getElementById("area-completar-cadastro").hidden = false;
+        return;
+      }
+      instituicaoAtual = data[0];
+      document.getElementById("area-dashboard").hidden = false;
+      document.getElementById("inst-nome-titulo").textContent = instituicaoAtual.nome;
+      document.getElementById("inst-subtitulo").textContent =
+        `Porte ${instituicaoAtual.porte} — contato: ${instituicaoAtual.email_contato}`;
+      await renderSetores(instituicaoAtual);
+    }
+
+    document.getElementById("form-instituicao").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const btn = document.getElementById("btn-salvar-instituicao");
+      btn.disabled = true;
+      btn.textContent = "Salvando...";
+
+      const { error } = await supa.from("instituicoes").insert({
+        nome: document.getElementById("inst-nome").value.trim(),
+        porte: document.getElementById("inst-porte").value,
+        email_contato: document.getElementById("inst-email").value.trim(),
+        owner_user_id: sessaoAtual.user.id,
+      });
+
+      if (error) {
+        mostrarErro("Não foi possível salvar (" + error.message + ").");
+        btn.disabled = false;
+        btn.textContent = "Salvar e continuar";
+        return;
+      }
+
+      document.getElementById("area-completar-cadastro").hidden = true;
+      await carregarInstituicao();
+    });
+
+    document.getElementById("form-setor").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const btn = document.getElementById("btn-add-setor");
+      btn.disabled = true;
+      btn.textContent = "Criando...";
+
+      const { error } = await supa.from("setores").insert({
+        instituicao_id: instituicaoAtual.id,
+        nome: document.getElementById("setor-nome").value.trim(),
+        nivel_criticidade: Number(document.getElementById("setor-criticidade").value),
+      });
+
+      btn.disabled = false;
+      btn.textContent = "Criar setor";
+
+      if (error) {
+        mostrarErro("Não foi possível criar o setor (" + error.message + ").");
+        return;
+      }
+
+      document.getElementById("form-setor").reset();
+      await renderSetores(instituicaoAtual);
+    });
+
+    document.getElementById("btn-sair").addEventListener("click", async () => {
+      await supa.auth.signOut();
+      window.location.href = "login.html";
+    });
+
+    (async () => {
+      const { data } = await supa.auth.getSession();
+      if (!data.session) {
+        window.location.href = "login.html";
+        return;
+      }
+      sessaoAtual = data.session;
+      await carregarInstituicao();
+    })();
+  </script>
+</body>
+</html>
